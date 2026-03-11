@@ -1,0 +1,8 @@
+---
+title: "Lesson 1: Introduction to Bayesian Analysis with NIMBLE"
+format: html
+---
+
+## Overview
+
+In this lesson, we begin our exploration of Bayesian data analysis using NIMBLE.
