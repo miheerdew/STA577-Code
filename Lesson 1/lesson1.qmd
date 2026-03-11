@@ -1,8 +1,225 @@
----
-title: "Lesson 1: Introduction to Bayesian Analysis with NIMBLE"
-format: html
----
+# Lesson 1: Bayesian Analysis with NIMBLE
 
-## Overview
+In this lesson, we begin our exploration of Bayesian data analysis using [NIMBLE](https://r-nimble.org/). We mainly have to describe the model and data in the BUGS language (same as used in our BIDA textbook). While there are other popular softwares for Bayesian data analysis like [STAN](https://mc-stan.org/) and [JAGS](https://mcmc-jags.sourceforge.io/) I prefer NIMBLE because it allows arbitrary customization and compatibility with R.
 
-In this lesson, we begin our exploration of Bayesian data analysis using NIMBLE.
+The code here is taken from Chapter 2 of [Gimenez (2026)](#0), where he continues with the winter survival example. Here I will quote parts of that chapter. Read it for full details.
+
+**Problem:** Researchers released `n = 59` animals in the wild at the beginning of winter, and found that at the end of the season only `y = 19` survived. They are interested in the winter survival probability $\theta$ for the animals.
+
+### Step 1
+
+We will now see how to compute and visualize the posterior in this simple example using NIMBLE.
+
+```{r}
+#| message: false
+
+library(nimble)
+
+# Describe the likelihood and data
+# We do this by building a NIMBLE model object.
+
+model <- nimbleCode({
+  # likelihood
+  survived ~ dbinom(theta, released)
+  # prior
+  theta ~ dunif(0, 1)
+  # derived quantity (optional)
+  lifespan <- -1/log(theta)
+})
+```
+
+We can display the model.
+
+```{r}
+model
+```
+
+Thus we have said that:
+
+1.  `survived` has a binomial distribution given `theta` and `released`.
+2.  `theta` has a uniform (0,1) distribution.
+3.  `lifespan` (new quantity) is expressed as function of `theta`.
+4.  `survived`, `theta`, and `lifespan` are called variables. Here `<-` is used to define a deterministic variable, while `~` is used to determine a stochastic variable.
+
+The declaration is not running anything. It is just internally creating a graph.
+
+> It does not matter in what order you write each line of code, NIMBLE uses what is called a declarative language for building models. In brief, you write code that tells NIMBLE what you want to achieve, and not how to get there. In contrast, an imperative language requires that you write what you want your program to do step by step.
+
+### Step 2
+
+Now we list the data.
+
+```{r}
+my.data <- list(released = 57, survived = 19)
+```
+
+> You can proceed with data passed this way, but you should know a little more about how NIMBLE sees data. NIMBLE distinguishes data and constants. Constants are values that do not change, e.g. vectors of known index values or the indices used to define for loops. Data are values that you might want to change, basically anything that only appears on the left of a `~`. Declaring relevant values as constants is better for computational efficiency, but it is easy to forget, and fortunately NIMBLE will by itself distinguish data and constants. It will suggest you to move some data into constants to improve efficiency. I will not use the distinction between data and constants in this chapter, but in the next chapters it will become important.
+
+### Step 3
+
+> Third step is to tell NIMBLE which nodes in your model you would like to keep track of, in other words the quantities you’d like to do inference about. In our model we want survival `theta` and `lifespan`:
+
+```{r}
+parameters.to.save <- c("theta", "lifespan")
+```
+
+### Step 4
+
+> Fourth step is to specify initial values for all model parameters. As a bare minimum, you need initial values for all nodes that only appear on the left side of a `~` in your code and are not given as data. To make sure that the MCMC algorithm explores the posterior distribution, we start different chains with different parameter values. You can specify initial values for each chain (here we specify for three chains) in a list and put them in yet another list:
+
+```{r}
+init1 <- list(theta = 0.1)
+init2 <- list(theta = 0.5)
+init3 <- list(theta = 0.9)
+initial.values <- list(init1, init2, init3)
+initial.values
+## [[1]]
+## [[1]]$theta
+## [1] 0.1
+## 
+## 
+## [[2]]
+## [[2]]$theta
+## [1] 0.5
+## 
+## 
+## [[3]]
+## [[3]]$theta
+## [1] 0.9
+```
+
+### Step 5: Run MCMC algorithm
+
+```{r}
+#| messages: false
+
+n.iter <- 5000
+n.burnin <- 1000
+n.chains <- 3
+
+mcmc.output <- nimbleMCMC(code = model,
+                          data = my.data,
+                          inits = initial.values,
+                          monitors = parameters.to.save,
+                          niter = n.iter,
+                          nburnin = n.burnin,
+                          nchains = n.chains)
+```
+
+Let's look at the output.
+
+```{r}
+str(mcmc.output)
+```
+
+```{r}
+dim(mcmc.output$chain1)
+## [1] 4000    2
+head(mcmc.output$chain1)
+##      lifespan  theta
+## [1,]   0.9069 0.3320
+## [2,]   0.9069 0.3320
+## [3,]   0.9069 0.3320
+## [4,]   0.9069 0.3320
+## [5,]   0.8526 0.3095
+## [6,]   0.7987 0.2859
+```
+
+Compute the posterior mean.
+
+```{r}
+mean(mcmc.output$chain1[,'theta'])
+## [1] 0.3407
+```
+
+Or obtain a credible interval
+
+```{r}
+quantile(mcmc.output$chain1[,'theta'], probs = c(2.5, 97.5)/100)
+##   2.5%  97.5% 
+## 0.2219 0.4620
+```
+
+Or visualize the entire distribution with a histogram
+
+```{r}
+#| messages: false
+
+library(ggplot2)
+library(tidyverse)
+
+mcmc.output$chain1[,"theta"] |>
+  as_tibble() |>
+  ggplot() +
+  geom_histogram(aes(x = value), color = "white") +
+  labs(x = "survival probability")
+```
+
+### Step 6: Diagnosing mixing
+
+MCMC visualizations are common, and fortunately there are standard libraries that interface well with tools like NIMBLE.
+
+```{r}
+library(MCMCvis)
+```
+
+```{r}
+MCMCsummary(object = mcmc.output, round = 2)
+
+```
+
+```{r}
+MCMCplot(object = mcmc.output, 
+         params = 'theta')
+```
+
+```{r}
+MCMCtrace(object = mcmc.output,
+          pdf = FALSE, # no export to PDF
+          ind = TRUE, # separate density lines per chain
+          params = "theta")
+```
+
+We typically use these plots to check mixing. Also recall the $\hat{R}$ (Gelmann statistic for testing mixing) and effective sample size (for checking if we have enough samples). We could display this on top of the previous plots.
+
+```{r}
+MCMCtrace(object = mcmc.output,
+          pdf = FALSE,
+          ind = TRUE,
+          Rhat = TRUE, # add Rhat
+          n.eff = TRUE, # add eff sample size
+          params = "theta")
+```
+
+### Step 7: Do whatever you want with the samples
+
+Typically we compute the posterior expectation of a certain functional..
+
+```{r}
+theta_samples <- c(mcmc.output$chain1[,'theta'], 
+                   mcmc.output$chain2[,'theta'],
+                   mcmc.output$chain3[,'theta'])
+```
+
+For instance, suppose we are interested in the lifespan.
+
+```{r}
+lifespan <- -1/log(theta_samples)
+```
+
+We can compute the posterior mean lifespan or its credible interval:
+
+```{r}
+mean(lifespan)
+quantile(lifespan, probs = c(2.5, 97.5)/100)
+```
+
+We can also plot the density:
+
+```{r}
+lifespan |>
+  as_tibble() |>
+  ggplot() +
+  geom_histogram(aes(x = value), color = "white") +
+  labs(x = "lifespan")
+```
