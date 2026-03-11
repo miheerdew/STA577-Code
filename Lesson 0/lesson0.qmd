@@ -1,0 +1,37 @@
+---
+title: "Lesson 0: Getting Started"
+format: html
+---
+
+## Welcome
+
+This lesson introduces the tools we will use throughout the course: Quarto, Git, and NIMBLE.
+
+## Quarto Resources
+
+[Quarto](https://quarto.org/) is a scientific publishing system that lets you combine code, text, and output into reproducible documents.
+
+- **Getting started with Quarto in RStudio**: <https://quarto.org/docs/get-started/hello/rstudio.html>
+- **Quarto for Scientists**: <https://qmd4sci.njtierney.com/>
+
+## Git
+
+[Git](https://git-scm.com/) is a version control system that helps you track changes to your code and collaborate with others.
+
+- **Git - the simple guide**: <https://rogerdudler.github.io/git-guide/>
+
+## Installing NIMBLE
+
+[NIMBLE](https://r-nimble.org/) is an R package for Bayesian statistical modeling. Install it by running the following code in R:
+
+```{r}
+#| eval: false
+install.packages("nimble")
+```
+
+After installation, load the package with:
+
+```{r}
+#| eval: false
+library(nimble)
+```
