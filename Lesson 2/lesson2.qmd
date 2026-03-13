@@ -1,0 +1,89 @@
+# Reproducing examples from the textbook
+
+Here we will reproduce examples from Chapter 3 of @BIDA (originally in WinBUGS) into NIMBLE.
+
+## Exercise 3.5
+
+Extending Exercise 3.2, two cities are allowed different death rates. Let 
+$$
+ y_i \sim \textrm{Poi}(\theta_i M_i) \qquad i = 1,2
+$$
+where the $M_i$ are known constants. Let knowledge about $\theta_i$ be reflected by independent gamma distributions, namely $\theta_i \sim Gamma(ai, bi)$. Derive the joint posterior for $(\theta_1,\theta_2)$. Characterize the joint distribution as we did for sampling two independent binomials. Think of $\theta_i$ as the rate of events per 100 thousand people in city i. For independent priors $\theta_i \sim Gamma(1, 0.1)$, give the exact joint posterior with $y_1 = 500$, $y_2 = 800$ in cities with populations of 100 thousand and 200 thousand, respectively (i.e. $M_1 =100$ and $M_2 = 200$).
+
+```{r}
+library(nimble)
+# Describe the likelihood and data
+# We do this by building a NIMBLE model object.
+
+model <- nimbleCode({
+  # likelihood
+  y1 ~ dpois(M1*theta1)
+  y2 ~ dpois(M2*theta2)
+  # prior
+  theta1 ~ dgamma(shape=1, rate=0.1)
+  theta2 ~ dgamma(shape=1, rate=0.1)
+})
+```
+
+Specify data and constants
+```{r}
+data <- list(y1=500, y2=800)
+constants <- list(M1 = 100, M2 = 200)
+parameters.to.save <- c("theta1", "theta2")
+```
+
+```{r}
+n.iter <- 5000
+n.burnin <- 1000
+n.chains <- 3
+
+init1 <- list(theta1 = 0.1, theta2 = 0.9)
+init2 <- list(theta1 = 0.9, theta2 = 0.1)
+init3 <- list(theta1 = 0.5, theta2 = 0.5)
+initial.values <- list(init1, init2, init3)
+initial.values
+
+mcmc.output <- nimbleMCMC(code = model,
+                          data = data,
+                          constants = constants,
+                          inits = initial.values,
+                          monitors = parameters.to.save,
+                          niter = n.iter,
+                          nburnin = n.burnin,
+                          nchains = n.chains)
+```
+
+Let's visualize the output and check its mixing:
+```{r}
+library(MCMCvis)
+MCMCsummary(object = mcmc.output, round = 2)
+```
+```{r}
+MCMCplot(object = mcmc.output, 
+         params = c('theta1', 'theta2'))
+```
+
+```{r}
+MCMCtrace(object = mcmc.output)
+```
+Traceplots look good. Now we can plot a historgram of the difference between the two means:
+
+```{r}
+```
+
+## Example 3.4 (Two binomials)
+
+Assume 
+$$
+y_1 | \theta_1 \sim \text{Binomial}(n_1, \theta_1) \quad \perp \quad y_2 | \theta_2 \sim \text{Binomial}(n_2, \theta_2).
+$$
+We want to estimate $\gamma = \theta_2 - \theta_1$ and test whether $H_0: \gamma \geq 0$ versus $H_A: \gamma < 0$. 
+
+For the prior density $p(\theta_1, \theta_2) = p(\theta_1) p(\theta_2)$, we might assume independence:
+$$
+\theta_1 \sim \text{Beta}(a_1, b_1), \quad  \perp \quad \theta_2 \sim \text{Beta}(a_2, b_2)
+$$
+
+Regarding this prior independence assumption, page 40 of @BIDA notes that:
+
+> Regarding prior independence, the fact that we are comparing these two binomials, in itself, suggests that there is some prior relationship between $\theta_1$ and $\theta_2$. We are not likely to compare the probability that someone will have a heart transplant to the probability that a refrigerator’s automatic ice maker will malfunction. We are far more likely to compare the probabilities of ice maker malfunctions for two brands of refrigerators. The key fact to justify the independence assumption is that if we were told the value of $\theta_1$ (within the plausible range of its prior distribution), we would not want to revise our prior for $\theta_2$. We each have some vague idea of how often an ice maker malfunctions and that it does not happen all that often. But if we found out that the first brand of ice maker had a 99% chance of breaking, it would probably change our prior opinion about the probability of the second brand breaking. While the existence of a $\theta_1$ value (here 99%) that would change our opinions about $\theta_2$ is technically a violation of independence, this violation is not important. If the hypothetical values for $\theta_1$ (like 99%) that violate independence are implausible under the current prior, we don’t really believe that such values for $\theta_1$ are possible, so it doesn’t matter that they would make us wish to revise the prior on $\theta_2$.
