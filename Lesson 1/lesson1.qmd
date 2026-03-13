@@ -2,11 +2,11 @@
 
 In this lesson, we begin our exploration of Bayesian data analysis using [NIMBLE](https://r-nimble.org/). We mainly have to describe the model and data in the BUGS language (same as used in our BIDA textbook). While there are other popular softwares for Bayesian data analysis like [STAN](https://mc-stan.org/) and [JAGS](https://mcmc-jags.sourceforge.io/) I prefer NIMBLE because it allows arbitrary customization and compatibility with R.
 
-The code here is taken from Chapter 2 of [Gimenez (2026)](#0), where he continues with the winter survival example. Here I will quote parts of that chapter. Read it for full details.
+The code here is taken from Chapter 2 of @gimenez2026, where he continues with the winter survival example. Here I will quote parts of that chapter. Read it for full details.
 
 **Problem:** Researchers released `n = 59` animals in the wild at the beginning of winter, and found that at the end of the season only `y = 19` survived. They are interested in the winter survival probability $\theta$ for the animals.
 
-### Step 1
+## Specify the Likelihood and Prior 
 
 We will now see how to compute and visualize the posterior in this simple example using NIMBLE.
 
@@ -45,7 +45,7 @@ The declaration is not running anything. It is just internally creating a graph.
 
 > It does not matter in what order you write each line of code, NIMBLE uses what is called a declarative language for building models. In brief, you write code that tells NIMBLE what you want to achieve, and not how to get there. In contrast, an imperative language requires that you write what you want your program to do step by step.
 
-### Step 2
+## Specify the Data
 
 Now we list the data.
 
@@ -55,7 +55,7 @@ my.data <- list(released = 57, survived = 19)
 
 > You can proceed with data passed this way, but you should know a little more about how NIMBLE sees data. NIMBLE distinguishes data and constants. Constants are values that do not change, e.g. vectors of known index values or the indices used to define for loops. Data are values that you might want to change, basically anything that only appears on the left of a `~`. Declaring relevant values as constants is better for computational efficiency, but it is easy to forget, and fortunately NIMBLE will by itself distinguish data and constants. It will suggest you to move some data into constants to improve efficiency. I will not use the distinction between data and constants in this chapter, but in the next chapters it will become important.
 
-### Step 3
+## Parameters to monitor
 
 > Third step is to tell NIMBLE which nodes in your model you would like to keep track of, in other words the quantities you’d like to do inference about. In our model we want survival `theta` and `lifespan`:
 
@@ -63,7 +63,7 @@ my.data <- list(released = 57, survived = 19)
 parameters.to.save <- c("theta", "lifespan")
 ```
 
-### Step 4
+## Specify Initial Values
 
 > Fourth step is to specify initial values for all model parameters. As a bare minimum, you need initial values for all nodes that only appear on the left side of a `~` in your code and are not given as data. To make sure that the MCMC algorithm explores the posterior distribution, we start different chains with different parameter values. You can specify initial values for each chain (here we specify for three chains) in a list and put them in yet another list:
 
@@ -88,7 +88,7 @@ initial.values
 ## [1] 0.9
 ```
 
-### Step 5: Run MCMC algorithm
+## Run MCMC algorithm
 
 ```{r}
 #| messages: false
@@ -155,7 +155,7 @@ mcmc.output$chain1[,"theta"] |>
   labs(x = "survival probability")
 ```
 
-### Step 6: Diagnosing mixing
+## Diagnose mixing
 
 MCMC visualizations are common, and fortunately there are standard libraries that interface well with tools like NIMBLE.
 
@@ -191,7 +191,7 @@ MCMCtrace(object = mcmc.output,
           params = "theta")
 ```
 
-### Step 7: Do whatever you want with the samples
+## Do whatever you want with the samples
 
 Typically we compute the posterior expectation of a certain functional..
 
