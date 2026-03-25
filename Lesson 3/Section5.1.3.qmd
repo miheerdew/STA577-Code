@@ -117,3 +117,14 @@ Similarly, Table 5.2 shows strong evidence that the relative risk and odds ratio
 # Visualize trace-plot.
 MCMCtrace(object = mcmc.output)
 ```
+
+
+**EXERCISE 5.12.** Suppose an expert's best guess for $\theta_1$ is 0.3 and they are $95 \%$ sure that $\theta_1$ is less than 0.6 . Their best guess for $\theta_2$ is 0.5 and they are $95 \%$ sure that it is less than 0.9 . Re-analyze the medfly data using this prior information and compare results to the reference analysis given above.
+
+
+**EXERCISE 5.13**. A study was conducted to compare the proportions of televisions A and B that are defective immediately after manufacturing. The TVs were sampled independently until exactly 20 defective As and 20 defective Bs were found. TV A required $y_1=59$ trials to reach 20 defectives and B required $y_2=179$. Let $\theta_1$ and $\theta_2$ denote the population proportions of defective As and Bs , respectively.
+
+1. Suppose prior information is extracted from a consumer magazine that has previously reported on the chance of buying a defective A or B. The prior estimate of the probability of a defective A is 0.1 and 0.05 for B. Also suppose we are $99 \%$ sure that less than $20 \%$ of each of the types of TVs are defective. Construct independent Beta priors that embody this information.
+2. Give the exact posterior distribution of $\left(\theta_1, \theta_2\right)$ and find the posterior means, modes, standard deviations, and (using R) 95\% probability intervals. Use the prior from part (a).
+3. Write a NIMBLE program to analyze the data. Obtain posterior means, medians, standard deviations, and $95 \%$ intervals for $\theta_1, \theta_2, R D$, and $R R$. Interpret your results. (Hint: Use the [cheatsheet](/Resources/NimbleCheatSheet.pdf) to help use the negative-binomial distribution.)
+4. Test whether $\theta_2>\theta_1$. Provide a conclusion.

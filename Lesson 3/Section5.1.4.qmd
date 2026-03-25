@@ -1,0 +1,113 @@
+# Case-Control sampling
+
+Section 5.1.4 of @BIDA continues discussing the problem of estimating diffence in population proportions, particularly relevant when one of the populations is rare under simple random sampling.
+
+> We sampled a number of individuals (medflies) and cross-classified them by an explanatory factor and a response factor. We then conditioned on the explanatory factor to arrive at data from two independent binomials. Alternatively, if the explanatory factor defines convenient populations, we can take independent samples from each level of the explanatory factor. In our example, high early egg producers and low early egg producers do not define medfly subpopulations that are easy to sample.
+> 
+> Both of these sampling strategies break down when studying rare events. Suppose we wanted to study the relationship between childhood vaccinations and autism. Autism is still relatively rare, so we would need a very large sample of children if we were to include, say, 50 autistic children. This would be true regardless of whether we sample children and cross-classify them, or whether we could conveniently sample the subpopulations of vaccinated children and unvaccinated children (a highly unlikely prospect).
+>
+> Rather than either of these sampling techniques, we might conveniently take one sample of autistic children and one sample of nonautistic children, that is, a sample of cases and a sample of controls. We could then classify children in each group by whether they had received childhood vaccinations. If we have a population of autistic children available, it becomes much easier to ensure that the study includes a reasonable number of them.
+
+This is called **case-control** sampling. We generate separate samples from cases (autistic children) and controls (non-autistic children). The problem with case-control sampling is that the data does not typically allow us to estimate the effect of variable/factor on the disease as illustrated next.
+
+**EXAMPLE 5.1.4.** In the late 1970s, it was observed that, in a sample of $n_1 = 7$ children with Reye’s Syndrome (RS), all 7 of them were taking aspirin at the time they became sick. A second sample of size $n_2 = 16$ children known to be free of Reye’s Syndrome was also taken, and it was determined that 8 of them were taking aspirin when sampled. For more details on these data, see Gastwirth (1988, Vol. 2).
+
+> The MLE of the probability of a child being on aspirin in the RS group is 1 and the corresponding estimate in the non-RS group is 0.5 . Based on these estimates $\widehat{O R}=\infty$. Just for fun, let's see what happens if we had seen 6 aspirin takers with RS instead of the actual 7. The MLE of the $O R$ would be $\widehat{O R}=[(6 / 7) /(1 / 7)] /[(1 / 2) / 1 / 2)]=6$, which epidemiologists would normally think of as quite large. But with the small sample sizes, is the result statistically important? More importantly, why would we care? **Why would we care that children with RS are more likely to take aspirin? Isn't what we care about whether children who take aspirin are more likely to get RS?**
+
+> To put it another way, assume a disease of interest $D$ with $D=1$ indicating presence and $D=2$ indicating absence of the disease and an exposure variable $E$ with $E=1$ indicating exposure and $E=2$ indicating no exposure. For example, $E=1$ corresponds to "vaccinated" and $E=2$ corresponds to "non-vaccinated" while $D=1$ corresponds to "autism" and $D=2$ corresponds to "no autism." We are interested in determining how $E$ affects the probability of $D$, namely $\operatorname{Pr}(D \mid E)$. We want to compare $\operatorname{Pr}(D=1 \mid E=1) \equiv \tilde{\theta}_1$ and $\operatorname{Pr}(D=1 \mid E=2) \equiv \tilde{\theta}_2$. Ideally, we would like to know, say, the risk ratio
+> $$
+>  R R=\operatorname{Pr}(D=1 \mid E=1) / \operatorname{Pr}(D=1 \mid E=2)=\tilde{\theta}_1 / \tilde{\theta}_2,
+>  $$
+> i.e., the proportion of autism among vaccinated children relative to the proportion of autism among non-vaccinated children. Alternatively, we might be interested in the risk difference or even the least intuitive of the effect measures, the **odds ratio**.
+>
+> Unfortunately, our study design does not allow us to estimate the risk ratio, or the risk difference, or the $\tilde{\theta}_i$s. However, the odds ratio of being autistic when vaccinated relative to being autistic when not vaccinated turns out to be estimable.
+
+With our study design, we can however estimate:
+$$
+\theta_1 \doteq \Pr(E=1|D=1) \qquad \text{ and } \qquad \theta_2 \doteq \Pr(E=1|D=2).
+$$
+We can use this to estimate the odds-ratio that we want, because it turns out that:
+$$
+\textrm{OR} \doteq \frac{\tilde{\theta}_1 /\left(1-\tilde{\theta}_1\right)}{\tilde{\theta}_2 /\left(1-\tilde{\theta}_2\right)} = \frac{\theta_1 /\left(1-\theta_1\right)}{\theta_2 /\left(1-\theta_2\right)}.
+$$
+
+> If we are willing to look at odds ratios as our effect measure, we can examine the relative effect of vaccination on the odds of autism even from a case-control study. This is not exactly what we hoped to achieve; we wanted to estimate the risk ratio. But when looking at small probabilities, like the probability of autism, the odds ratio is a good approximation to the risk ratio. For example if $O R=$ 10, the odds of autism in the vaccinated group would be 10 times that for the non-vaccinated group. If $\operatorname{Pr}(D=1 \mid E=1)=0.01$ and $\operatorname{Pr}(D=1 \mid E=2)=0.001$ we get $R R=10 \doteq O R$. Unfortunately, when the probabilities are not small, say if $\operatorname{Pr}(D=1 \mid E=1)=10 / 19=0.53$ and $\operatorname{Pr}(D=1 \mid E=2)=0.1$, $O R=10$ but $R R=5.3$, a big difference.
+
+
+**EXERCISE 5.14.** (a) Analyze the Reye's Syndrome data using $U[0,1]$ priors on $\theta_1$ and $\theta_2$. (b) Discuss issues of causation and correlation for the RS data. For example, people with high blood pressure are more likely to take beta blocker drugs like atenolol than people without high blood pressure. 
+
+```{r}
+#| messages: False
+#| warnings: False
+#| output: False
+
+library(nimble)
+library(coda)
+
+set.seed(2026)
+
+# data: RS cases y1=7 of n1=7; controls y2=8 of n2=16
+data_list <- list(y = c(7L, 8L), n = c(7L, 16L))
+
+code <- nimbleCode({
+  y[1] ~ dbin(theta[1], n[1])
+  y[2] ~ dbin(theta[2], n[2])
+  theta[1] ~ dbeta(1, 1)   # U(0,1)
+  theta[2] ~ dbeta(1, 1)   # U(0,1)
+  OR <- (theta[1] / (1 - theta[1])) / (theta[2] / (1 - theta[2]))
+})
+
+inits_fun <- function() list(theta = c(0.9, 0.5))  # avoid exact 0/1 inits
+
+mcmc_out <- nimbleMCMC(
+  code = code,
+  constants = NULL,
+  data = data_list,
+  inits = inits_fun,
+  monitors = c("theta[1]", "theta[2]", "OR"),
+  niter = 20000,
+  nburnin = 5000,
+  nchains = 3,
+  thin = 5,
+  samplesAsCodaMCMC = TRUE
+)
+```
+
+```{r}
+library(MCMCvis)
+MCMCsummary(object = mcmc_out, round = 2)
+```
+
+The Rhat away from 1 should indicate problems with convergence of OR. Let's look at the traceplots:
+
+```{r}
+MCMCtrace(object = mcmc_out)
+```
+
+Why are they unreliable? Likely because when $\theta_1 \approx 1$, the OR blows up. This means that we need to use an alternate analysis here.
+
+## Using prior information on OR
+
+> Another situation that can arise is where there is prior information on $O R$, perhaps based on a previous case-control study that is similar to the one at hand. We can place a prior on the parameters by placing, say, a normal prior on $\delta \equiv \log (O R)$ and an independent Beta prior on $\theta_2$. These induce a prior on $\left(\theta_1, \theta_2\right)$. To apply this, we need to solve for $\theta_1$ in terms of $\delta$ and $\theta_2$. Some algebra gives
+> 
+> $$
+> \theta_1=\frac{e^\delta \theta_2}{1-\theta_2\left(1-e^\delta\right)}
+> $$
+>
+> To elicit a prior on $\delta$ we think about $O R$. If our best guess is that $O R=3$, then we take the mean of the normal distribution for $\delta$ to be $\log (3)=1.1$. Moreover, if we are, say, $90 \%$ sure that the $O R$ is at least 0.8 , then we are also $90 \%$ sure that $\log (O R)$ is at least $\log (0.8)=-0.22$. We need to find a normal distribution with a mean of 1.1 and a 10th percentile of -0.22 . We know (or can look up) that the 10 th percentile of a normal is -1.28 standard deviations below the mean, so we set $1.1-1.28 \sigma=-0.22$ and solve for $\sigma=1.03$. Our prior on $\delta$ is $N\left(1.1,(1.03)^2\right)$.
+
+**EXERCISE 5.15.** An expert has no belief that there is or is not an effect of aspirin on RS, but that if there is one, it won't be "huge" in either direction. They place a $N(0,2)$ prior on $\delta$, so their best guess for the $O R$ is $e^0=1$. The prior also indicates that they are $95 \%$ sure that the $O R$ is in the interval $e^{(-1.96 * 1.414,1.96 * 1.414)}=(0.063,16.0)$. The interval is "centered" on 1 and allows for a broad range of possibilities in both directions. Place the Jeffreys' Beta(0.5,0.5) prior on $\theta_2$.
+
+Analyze the RS data by adding to the following code.
+```
+model{
+    for(i in 1:2){ y[i] ~ dbin(theta[i],n[i]) }
+    theta[2] ~ dbeta(a,b)
+    delta ~ dnorm(mu, prec)
+    theta[1] <- exp(delta)*theta[2]/(1-theta[2]*(1-exp(delta)))
+    OR <- theta[1]/(1-theta[1])/(theta[2]/(1-theta[2]))
+}
+```
+
+
+Examine the sensitivity of the results to the choice of prior. Try a prior that reflects much more skepticism about whether there is any effect and a prior that suggests that any effect will be a positive one. Also consider a $U[\log (0.02), \log (50)]$ prior for $\delta$ and a $\operatorname{Beta}(1,1)$ prior for $\theta_2$ to see what impact that has on the results. Be sure to calculate the posterior probability that $O R>1$, and possibly some other posterior probabilities, like the probability that $O R>2$.
