@@ -33,73 +33,58 @@ $$
 
 > If we are willing to look at odds ratios as our effect measure, we can examine the relative effect of vaccination on the odds of autism even from a case-control study. This is not exactly what we hoped to achieve; we wanted to estimate the risk ratio. But when looking at small probabilities, like the probability of autism, the odds ratio is a good approximation to the risk ratio. For example if $O R=$ 10, the odds of autism in the vaccinated group would be 10 times that for the non-vaccinated group. If $\operatorname{Pr}(D=1 \mid E=1)=0.01$ and $\operatorname{Pr}(D=1 \mid E=2)=0.001$ we get $R R=10 \doteq O R$. Unfortunately, when the probabilities are not small, say if $\operatorname{Pr}(D=1 \mid E=1)=10 / 19=0.53$ and $\operatorname{Pr}(D=1 \mid E=2)=0.1$, $O R=10$ but $R R=5.3$, a big difference.
 
-
 **EXERCISE 5.14.** (a) Analyze the Reye's Syndrome data using $U[0,1]$ priors on $\theta_1$ and $\theta_2$. (b) Discuss issues of causation and correlation for the RS data. For example, people with high blood pressure are more likely to take beta blocker drugs like atenolol than people without high blood pressure. 
 
-```{r}
-#| messages: False
-#| warnings: False
-#| output: False
+**Answer:** (a) If we assign a uniform prior, Reye's Syndrome data $n_1=7, y_1=7$ and $n_2=16, y_2=8$ lead to the posterior $$
+\theta_1 | y_1, y_2 \sim \textrm{Beta}(8,1) \quad \perp \quad \theta_2 | y_1, y_2 \sim \textrm{Beta}(9,9)
+$$
 
-library(nimble)
-library(coda)
+What does this mean for our odds ratio (remember that this is the same as that of getting Reye's Syndrome when we take Aspirin versus when we do not take Aspirin)? $$
+OR = \frac{\theta_1 / (1 - \theta_1)}{\theta_2 / (1 - \theta_2)}
+$$
 
-set.seed(2026)
-
-# data: RS cases y1=7 of n1=7; controls y2=8 of n2=16
-data_list <- list(y = c(7L, 8L), n = c(7L, 16L))
-
-code <- nimbleCode({
-  y[1] ~ dbin(theta[1], n[1])
-  y[2] ~ dbin(theta[2], n[2])
-  theta[1] ~ dbeta(1, 1)   # U(0,1)
-  theta[2] ~ dbeta(1, 1)   # U(0,1)
-  OR <- (theta[1] / (1 - theta[1])) / (theta[2] / (1 - theta[2]))
-})
-
-inits_fun <- function() list(theta = c(0.9, 0.5))  # avoid exact 0/1 inits
-
-mcmc_out <- nimbleMCMC(
-  code = code,
-  constants = NULL,
-  data = data_list,
-  inits = inits_fun,
-  monitors = c("theta[1]", "theta[2]", "OR"),
-  niter = 20000,
-  nburnin = 5000,
-  nchains = 3,
-  thin = 5,
-  samplesAsCodaMCMC = TRUE
-)
-```
+We can simulate the posterior distribution of the odds ratio using the following R code:
 
 ```{r}
-library(MCMCvis)
-MCMCsummary(object = mcmc_out, round = 2)
+n.reps <- 1000
+
+theta1 <- rbeta(n.reps, 8, 1)
+theta2 <- rbeta(n.reps, 9, 9)
+
+OR <- (theta1 / (1 - theta1)) / (theta2 / (1 - theta2))
+round(fivenum(OR), 2)
 ```
 
-The Rhat away from 1 should indicate problems with convergence of OR. Let's look at the traceplots:
+The odds ratio can become very big! So let me plot the density of the log-odds:
 
 ```{r}
-MCMCtrace(object = mcmc_out)
+# visualize the density of the plot
+plot(density(log(OR, base=10)), main="Posterior Density of Log Odds Ratio", xlab = "Log_10(OR)")
 ```
 
-Why are they unreliable? Likely because when $\theta_1 \approx 1$, the OR blows up. This means that we need to use an alternate analysis here.
+According to this analysis, taking Aspirin increase the odds ratio of getting Reye's Syndrome (RS) by at least 10 times and potentially upto 1000 times! Seems like an important issue to investigate further.
+
+(b) A couple of caveats are in order.
+
+-   This does not necessarily mean that taking Aspirin **causes** RS. It is indeed possible that people with RS have to take Aspirin for certain reason, which is why we see increased odds. What we are noting is **correlation** -- among randomly selected people those who take Asirin get RS at higher odds than those who don't take it. We need to do an experiments to note any causal relationship (where we randomly assign a large number of people to take Aspirin or not, and study its effect on their RS rates).
+
+-   Finally, note that we haven't determined what that risk of getting RS really is, which could still be small both when taking Aspirin and when not taking Aspirin.
 
 ## Using prior information on OR
 
 > Another situation that can arise is where there is prior information on $O R$, perhaps based on a previous case-control study that is similar to the one at hand. We can place a prior on the parameters by placing, say, a normal prior on $\delta \equiv \log (O R)$ and an independent Beta prior on $\theta_2$. These induce a prior on $\left(\theta_1, \theta_2\right)$. To apply this, we need to solve for $\theta_1$ in terms of $\delta$ and $\theta_2$. Some algebra gives
-> 
+>
 > $$
 > \theta_1=\frac{e^\delta \theta_2}{1-\theta_2\left(1-e^\delta\right)}
 > $$
 >
 > To elicit a prior on $\delta$ we think about $O R$. If our best guess is that $O R=3$, then we take the mean of the normal distribution for $\delta$ to be $\log (3)=1.1$. Moreover, if we are, say, $90 \%$ sure that the $O R$ is at least 0.8 , then we are also $90 \%$ sure that $\log (O R)$ is at least $\log (0.8)=-0.22$. We need to find a normal distribution with a mean of 1.1 and a 10th percentile of -0.22 . We know (or can look up) that the 10 th percentile of a normal is -1.28 standard deviations below the mean, so we set $1.1-1.28 \sigma=-0.22$ and solve for $\sigma=1.03$. Our prior on $\delta$ is $N\left(1.1,(1.03)^2\right)$.
 
-**EXERCISE 5.15.** An expert has no belief that there is or is not an effect of aspirin on RS, but that if there is one, it won't be "huge" in either direction. They place a $N(0,2)$ prior on $\delta$, so their best guess for the $O R$ is $e^0=1$. The prior also indicates that they are $95 \%$ sure that the $O R$ is in the interval $e^{(-1.96 * 1.414,1.96 * 1.414)}=(0.063,16.0)$. The interval is "centered" on 1 and allows for a broad range of possibilities in both directions. Place the Jeffreys' Beta(0.5,0.5) prior on $\theta_2$.
+**EXERCISE 5.15.** An expert has no belief that there is or is not an effect of aspirin on RS, but that if there is one, it won't be "huge" in either direction. They place a $N(0,2)$ prior on $\delta$, so their best guess for the $OR$ is $e^0=1$. The prior also indicates that they are $95 \%$ sure that the $OR$ is in the interval $(e^{-1.96 * 1.414},e^{1.96 * 1.414})=(0.063,16.0)$. The interval is "centered" on 1 and allows for a broad range of possibilities in both directions. Place the Jeffreys' Beta(0.5,0.5) prior on $\theta_2$.
 
 Analyze the RS data by adding to the following code.
-```
+
+```         
 model{
     for(i in 1:2){ y[i] ~ dbin(theta[i],n[i]) }
     theta[2] ~ dbeta(a,b)
@@ -109,5 +94,90 @@ model{
 }
 ```
 
+Examine the sensitivity of the results to the choice of prior. Try a prior that reflects much more skepticism about whether there is any effect and a prior that suggests that any effect will be a positive one. Also consider a $U[\log (0.02), \log (50)]$ prior for $\delta$ and a $\operatorname{Beta}(1,1)$ prior for $\theta_2$ to see what impact that has on the results. Be sure to calculate the posterior probability that $OR>1$, and possibly some other posterior probabilities, like the probability that $OR>2$.
 
-Examine the sensitivity of the results to the choice of prior. Try a prior that reflects much more skepticism about whether there is any effect and a prior that suggests that any effect will be a positive one. Also consider a $U[\log (0.02), \log (50)]$ prior for $\delta$ and a $\operatorname{Beta}(1,1)$ prior for $\theta_2$ to see what impact that has on the results. Be sure to calculate the posterior probability that $O R>1$, and possibly some other posterior probabilities, like the probability that $O R>2$.
+```{r}
+#| warnings: false
+#| messages: false
+#| output: false
+
+library(nimble)
+library(coda)
+library(MCMCvis)
+
+set.seed(2026)
+
+# data: RS cases y1=7 of n1=7; controls y2=8 of n2=16
+data_list <- list(y = c(7L, 8L), n = c(7L, 16L))
+
+# Function to run model and report results
+run_model <- function(code, model_name, inits_fun) {
+
+  mcmc_out <- nimbleMCMC(
+    code = code,
+    data = data_list,
+    inits = inits_fun,
+    monitors = c("theta[1]", "theta[2]", "OR", "delta"),
+    niter = 50000,
+    nburnin = 10000,
+    nchains = 3,
+    thin = 10,
+    samplesAsCodaMCMC = TRUE
+  )
+  
+  cat("\n===", model_name, "===\n")
+  print(MCMCsummary(mcmc_out, round = 3))
+  
+  samples <- do.call(rbind, mcmc_out)
+  cat("\nP(OR > 1) =", mean(samples[, "OR"] > 1), "\n")
+  cat("P(OR > 2) =", mean(samples[, "OR"] > 2), "\n")
+  
+  invisible(mcmc_out)
+}
+
+# --- Base model: N(0,2) prior on delta, Beta(0.5,0.5) on theta2 ---
+code_base <- nimbleCode({
+  for (i in 1:2) { y[i] ~ dbin(theta[i], n[i]) }
+  theta[2] ~ dbeta(0.5, 0.5)
+  delta ~ dnorm(0, sd = sqrt(2))
+  theta[1] <- exp(delta) * theta[2] / (1 - theta[2] * (1 - exp(delta)))
+  OR <- (theta[1] / (1 - theta[1])) / (theta[2] / (1 - theta[2]))
+})
+
+# --- Skeptical prior: tighter around OR=1 ---
+code_skeptic <- nimbleCode({
+  for (i in 1:2) { y[i] ~ dbin(theta[i], n[i]) }
+  theta[2] ~ dbeta(0.5, 0.5)
+  delta ~ dnorm(0, sd = 0.5)  # Much tighter
+  theta[1] <- exp(delta) * theta[2] / (1 - theta[2] * (1 - exp(delta)))
+  OR <- (theta[1] / (1 - theta[1])) / (theta[2] / (1 - theta[2]))
+})
+
+# --- Positive effect prior: centered on OR > 1 ---
+code_positive <- nimbleCode({
+  for (i in 1:2) { y[i] ~ dbin(theta[i], n[i]) }
+  theta[2] ~ dbeta(0.5, 0.5)
+  delta ~ dnorm(1, sd = 1)  # Centered on OR = e ≈ 2.7
+  theta[1] <- exp(delta) * theta[2] / (1 - theta[2] * (1 - exp(delta)))
+  OR <- (theta[1] / (1 - theta[1])) / (theta[2] / (1 - theta[2]))
+})
+
+# --- Uniform prior on delta, Beta(1,1) on theta2 ---
+code_uniform <- nimbleCode({
+  for (i in 1:2) { y[i] ~ dbin(theta[i], n[i]) }
+  theta[2] ~ dbeta(1, 1)
+  delta ~ dunif(log(0.02), log(50))
+  theta[1] <- exp(delta) * theta[2] / (1 - theta[2] * (1 - exp(delta)))
+  OR <- (theta[1] / (1 - theta[1])) / (theta[2] / (1 - theta[2]))
+})
+
+inits_fun <- function() list(theta = c(NA, runif(1, 0.3, 0.7)), delta = rnorm(1, 0, 0.5))
+```
+
+```{r}
+# Run all sensitivity analyses
+out1 <- run_model(code_base, "N(0,2) on delta, Beta(0.5,0.5) on theta2", inits_fun)
+out2 <- run_model(code_skeptic, "Skeptical: N(0,0.25) on delta", inits_fun)
+out3 <- run_model(code_positive, "Positive effect: N(1,1) on delta", inits_fun)
+out4 <- run_model(code_uniform, "Uniform: U[log(0.02),log(50)] on delta, Beta(1,1) on theta2", inits_fun)
+```
