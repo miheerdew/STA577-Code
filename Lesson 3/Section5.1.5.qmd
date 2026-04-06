@@ -1,0 +1,113 @@
+# Normal model revisited
+
+In this section we will fit a normal distribution with careful choice of prior for the mean and an independent reference prior for the variance. We will work with the following example.
+
+**Example:** Twelve alloy samples were tested using spectrometry by the St. Paul Brass and Aluminum Foundry in St. Paul, Minnesota, in June of 2003. Let $y_i$ be the zinc percentage of sample $i$, $i=1, \ldots, 12$. We assume that the observations are independent and follow a bell-shaped curve. Specifically, we assume they follow a normal distribution with some mean $\mu$ and variance $\sigma^2=1/\tau$ (recall we our use of precision $\tau$). Write
+
+$$y_1, \ldots, y_{12} \mid \mu, \tau \stackrel{i i d}{\sim} N\left(\mu, 1/\tau\right) .$$
+
+The $n=12$ sample zinc percentages are 4.20,4.36,4.11,3.96,5.63,4.50,5.64,4.38,4.45,3.67, 5.26, and 4.66. The sample mean is $\bar{y} .=4.568$, the sample standard deviation is $s=0.631$, so the standard error of $\bar{y}$. is $\operatorname{SE}(\bar{y})=.0.631 / \sqrt{12}=0.182$. The minimum observation is $y_{(1)}=3.67$ and the maximum is $y_{(12)}=5.64$. The first quartile is $q_1=4.133$, the third is $q_3=5.110$, and the median is $\tilde{y}=4.415$.
+
+The data seemes reasonably normal when inspecting a normal plot, and so a normal model is not unreasonable.
+
+```{r}
+y <- c(4.20,4.36,4.11,3.96,5.63,4.50,5.64,4.38,4.45,3.67,5.26,4.66)
+ybar <- mean(y)
+s <- sd(y)
+n <- length(y)
+qqnorm(y)
+qqline(y)
+```
+
+See Section 1.2 of @BIDA for more background on this dataset. Based on this data, we want to know what the chance $\Pr(y_{13} < 4.4)$ is for a new observation $y_{13}$. This is the event that zinc will need to be added to the allow.
+
+## Reference prior
+
+As noted in Section 5.2.1 of @BIDA, the most commonly used reference prior $$p(\mu, \tau) \propto \frac{1}{\tau}$$ will give results strikingly similar to frequentist inference for this data. This prior can be thought of as placing "independent" flat priors on both $\mu$ and $\log(\tau)$ (Section 4.6).
+
+See the derivation in the textbook for the form of the joint posterior: $$\begin{aligned}
+\mu | \tau, y &\sim N(\bar{y}, 1/(n\tau))\\
+\tau | y &\sim \text{Gamma}\left(\frac{n-1}{2}, \frac{(n-1)s^2}{2}\right)
+\end{aligned}$$
+
+Next, some elegant distribution theory calculations (see p.g. 11 of @BIDA) that this implies:
+
+$$\frac{\mu - \bar{y}}{s/\sqrt{n}} \Bigg| y \sim t(n-1)\\
+\frac{y_{n+1} - \bar{y}}{s\sqrt{1+1/n}} \Bigg| y \sim t(n-1)$$
+
+Note that these results are strikingly similar to frequentist results, but now $\mu$ and $y_{n+1}$ are assumed random (to be drawn from the posterior) while $s$ and $\bar{y}$ are assumed fixed (by conditioning).
+
+This allows us to calculate the chance $\Pr(y_{13} < 4.4) \approx 0.40$ that zinc will be need to be added to a new observation $y_{13}$:
+
+```{r}
+pt((4.4 - ybar) / (s * sqrt(1 + 1/n)), df = n - 1)
+```
+
+Aside: Read about the fascinating story of ["Student"](../Resources/Students-distr-retrospective.pdf).
+
+## Informative prior
+
+Now let's see what this same analysis says if we use prior information. Following Section 5.2.3 of @BIDA, it is reasonable to assume that our information about $\mu$ and $\tau$ can be independently elicited:
+$$p(\mu,\tau) = p(\mu) p(\tau)$$
+But this means that we don't have conjugacy anymore, and need to rely on NIMBLE to do our inference.
+
+**Example continued**. We need to identify a prior distribution that gives information about the unknown parameters $\mu$ and $\tau=1 / \sigma^2$. Our expert estimated with $95 \%$ certainty that the mean zinc percentage $\mu$ before pouring should be between $4.5 \%$ and $5 \%$ and would be centered at $4.75 \%$. We interpret this information as $\mathrm{E}(\mu)=4.75$ and $\operatorname{Pr}(4.5<\mu<5)=0.95$ in the prior distribution. Further assuming that the prior on $\mu$ is normal, we find
+
+$$\mu \sim N(4.75,0.0163).$$
+
+(Determining the prior variance of $\mu$ will be discussed shortly.) We have no good information on $\sigma^2$, the variance of an observation $y_i$, so we specify a reference prior on $\sigma^2$ that is independent of $\mu$. The reference prior we use is a gamma distribution on $\tau \equiv 1 / \sigma^2$ with very small parameters. In particular, we used
+
+$$\tau \sim \operatorname{Gamma}(0.001,0.001).$$
+
+Our aim is to learn about $\gamma = \Pr(y_{13} < 4.4) = \Phi((4.4 - \mu) / \sqrt{1/\tau})$. Note that rather than compute the posterior expectation of $\gamma$ like we did previously, we can now also obtain a probability interval.
+
+Here is NIMBLE code for generating the posterior:
+
+```{r}
+library(nimble)
+# Model code
+zinc_model <- nimbleCode({
+  for (i in 1:n) {
+    y[i] ~ dnorm(mu, tau)
+  }
+  mu ~ dnorm(4.75, 1/0.0163)
+  tau ~ dgamma(0.001, 0.001) # dflat()
+  sigma <- 1 / sqrt(tau)
+  gamma_prob <- phi((4.4 - mu) / sqrt(1 / tau))
+  prob <- step(4.4 - y[13])
+})
+
+# Data and constants
+zinc_data <- list(
+  y = c(4.20, 4.36, 4.11, 3.96, 5.63, 4.50,
+        5.64, 4.38, 4.45, 3.67, 5.26, 4.66, NA)
+)
+
+zinc_constants <- list(n = 13)
+
+# Initial values
+zinc_inits <- list(mu = 0, tau = 1)
+
+# Build and compile model
+zinc_mcmc <- nimbleMCMC(
+  code      = zinc_model,
+  data      = zinc_data,
+  inits     = zinc_inits,
+  constants = zinc_constants,
+  monitors  = c("mu", "tau", "sigma", "gamma_prob", "prob"),
+  niter     = 50000,
+  nburnin   = 2000,
+  nchains   = 3,
+  summary   = TRUE
+)
+```
+
+```{r}
+round(zinc_mcmc$summary$all.chains, 3)
+```
+
+Note that $\Pr(y_{13} < 4.4|y) \approx 0.33$. In fact, we can study
+
+$$\gamma = \Pr(y_{13} < 4.4|y, \mu, \tau) = \Phi\left(\frac{4.4-\mu}{\sqrt{1/\tau}}\right).$$
+
+We find that $E[\gamma|y] \approx 0.33$ while $\gamma \in (0.20, 0.45)$ with 95% chance.
