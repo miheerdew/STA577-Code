@@ -64,6 +64,7 @@ Our aim is to learn about $\gamma = \Pr(y_{13} < 4.4) = \Phi((4.4 - \mu) / \sqrt
 Here is NIMBLE code for generating the posterior:
 
 ```{r}
+#| cache: true
 library(nimble)
 # Model code
 zinc_model <- nimbleCode({
@@ -111,3 +112,118 @@ Note that $\Pr(y_{13} < 4.4|y) \approx 0.33$. In fact, we can study
 $$\gamma = \Pr(y_{13} < 4.4|y, \mu, \tau) = \Phi\left(\frac{4.4-\mu}{\sqrt{1/\tau}}\right).$$
 
 We find that $E[\gamma|y] \approx 0.33$ while $\gamma \in (0.20, 0.45)$ with 95% chance.
+
+## Eliciting the prior
+
+In order to illustrate our prior choice, let us consider
+$$
+y_1, \ldots, y_n \sim N(\mu, 1/\tau) 
+$$
+representing final scores of $n$ students in my STA 345 class that I teach every year. (These are typically multi-modal and thus not normal but we will ignore that.)
+
+We will assume prior independence between $\mu$ and $\tau$ (or $\sigma^2 = \frac{1}{\tau}$) and consider a prior that has the form
+$$
+\begin{aligned}
+\mu &\sim N(a, 1/b)\\
+\tau &\sim \textrm{Gamma}(c,d) \quad \text{ or } \quad  \sigma^2 \sim \textrm{Gamma}(c,d)
+\end{aligned}
+$$
+
+So there are four parameters to elicit, so I need to ask (myself) at least four questions to elicit these parameters. 
+
+### Elicit prior on $\mu$
+
+$\mu$ is the average exam score in my class. I can use previous year's information about these topics.
+
+> My best guess for $\mu$ is 65.
+
+So I take my point estimate for $\mu$ to be equal to $a = 65$ 
+
+> I am virtually certain that $\mu$ will not exceed $u = 70$.
+
+So I choose $b$ so that:
+$$
+\Pr(\mu \leq 70) = 0.95
+$$
+or equivalently
+$$
+a + 1.645 \sqrt{\frac{1}{b}} = 0.7
+$$
+This gives $b = 1.108$, and thus
+$$
+\mu \sim N(65, \frac{1}{1.108})
+$$
+
+### Elicit prior on $\tau$
+
+Elicit prior on variance parameters directly is hard. The idea is relate them to quantiles of the observations $y_1, \ldots, y_n$, which are easier to reason about.
+
+Let $\gamma_{0.9}$ be the 90th percentile score for my class. Why does this help to elicit prior on $\tau$ (or $\sigma$)? Because based on our normal model:
+$$
+\gamma_{0.9} = \mu + 1.28 \sigma
+$$
+
+> My guess for the 90th percentile score in my class is $\tilde{\gamma}_{0.9} = 85$.
+
+We set this equal to guess:
+$$
+a + 1.28 \sigma_0 = \tilde{\gamma}_{0.9} = 85
+$$
+which shows
+$$
+\sigma_0 = (\tilde{\gamma}_{0.9} - a) / 1.28 = 15.625
+$$
+or 
+$$
+\tau_0 = 1 / \sigma_0^2 = 0.004096.
+$$
+
+
+We can set this guess as the mode for our Gamma distribution on $\tau$ or $\sigma$, but we need one more piece of information.
+
+> I am virtually certain that the 90th percentile score in my class will not exceed $\tilde{u} = 91$.
+
+We take this to mean that
+
+$$
+\begin{aligned}
+0.95 &= \Pr(\mu + z_{0.9} \sigma \leq \tilde{u} | \mu = a)\\
+&= \Pr\left(\sigma \leq \frac{\tilde{u} - a}{z_{0.9}} \right)\\
+&= \Pr\left(\tau \geq \frac{z_{0.9}^2}{(\tilde{u} - a)^2}\right)
+\end{aligned}.  
+$$
+
+Thus this provides us information on the 95th percentile of $\sigma$ or equivalently the 5th percentile of $\tau$. 
+$$
+\tilde{\sigma}_{0.95} = \frac{\tilde{u} - a}{z_{0.9}} = 20.3125 \quad \text{ or } \quad \tilde{\tau}_{0.05} = \frac{z_{0.9}^2}{(\tilde{u} - a)^2} = 0.002048.
+$$
+We can use this information to find the parameters of our Gamma distribution on $\tau$ (or $\sigma$) by trial and error.
+
+First assuming $\sigma \sim \textrm{Gamma}(e,f)$, we equate the mode to $\sigma_0$:
+$$
+\sigma_0 = \frac{e-1}{f} \quad \text{ or } \quad e = 1 + \sigma_0 f
+$$
+
+Now we need to find $f$ such that the 95th percentile of $\sigma$ is $\tilde{\sigma}_{0.95} = 20.3125$. We find that
+$$
+\sigma \sim \textrm{Gamma}(41.4375,2.588)
+
+```{r}
+alpha <- 0.90 
+beta <- 0.95 
+a <- 65 # Best guess for mu 
+tildegamma <- 85 # Best guess for gamma_alpha
+tildeu <- 91 # Best guess percentile of gamma_alpha 
+zalpha <- 1.28 # qnorm(0.90,0,1) 
+f <- 3 # Initial value for f 
+# Could use a sequence of values, say f <- seq(1,50,1) 
+sigma0 <- (tildegamma - a)/zalpha 
+e <- 1 + sigma0*f 
+# We must find the Gamma(e,f) distribution that 
+# has beta-percentile = tildesigmabeta 
+tildesigmabeta <- (tildeu - a)/zalpha 
+trialq <- qgamma(beta,e,f) # Return beta-percentile for the 
+                           # selected gamma distribution  
+trialq       # If trialq = tildesigmabeta
+tildesigmabeta # stop and pick corresponding f
+```
