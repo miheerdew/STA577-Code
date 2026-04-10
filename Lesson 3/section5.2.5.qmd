@@ -1,0 +1,363 @@
+```{r setup}
+#| include: false
+library(nimble)
+library(tidyverse)
+library(knitr)
+```
+
+The following analysis is taken from Section 5.2.5 of @BIDA.
+
+## Motivating Application: Renal Osteodystrophy {#sec-application}
+
+> **Clinical context.** Renal osteodystrophy is a bone disease arising when failing kidneys cannot maintain proper calcium and phosphorus levels. Distinguishing **low** from **normal** bone turnover guides disease management.
+
+The commercially available **Diasorin** assay claims to separate these two patient groups. A cross-section of **34 kidney patients** from the bone registry at the University of Kentucky were classified as low or normal turnover by independent means and then given the Diasorin assay. The research question:
+
+> *Can the Diasorin score reliably classify a patient as low vs. normal bone turnover?*
+
+### The Data
+
+```{r data}
+low    <- c(91, 46, 95, 60, 33, 410, 105, 43, 189, 1097,
+            54, 178, 114, 137, 233, 101, 25, 70, 357)
+normal <- c(370, 267, 99, 157, 75, 1281, 48, 298,
+            268, 62, 804, 430, 171, 694, 404)
+
+n1 <- length(low);    n1   # low group
+n2 <- length(normal); n2   # normal group
+
+df_raw <- data.frame(
+  score = c(low, normal),
+  group = factor(rep(c("Low", "Normal"), c(n1, n2)))
+)
+
+df_log <- df_raw |> mutate(log_score = log(score))
+```
+
+The low group has `r n1` patients and the normal group has `r n2` patients.
+
+### Data Visualization
+
+```{r fig-5-2a}
+#| fig-cap: "**Figure 5.2a.** Boxplots on original scale."
+ggplot(df_raw, aes(group, score, fill = group)) +
+  geom_boxplot(alpha = 0.6, outlier.shape = 1) +
+  scale_fill_manual(values = c("steelblue", "tomato")) +
+  labs(title = "Original scale", x = NULL, y = "Diasorin") +
+  theme_bw(base_size = 12) + theme(legend.position = "none")
+```
+
+```{r fig-5-2b}
+#| fig-cap: "**Figure 5.2b.** Boxplots on log scale."
+ggplot(df_log, aes(group, log_score, fill = group)) +
+  geom_boxplot(alpha = 0.6, outlier.shape = 1) +
+  scale_fill_manual(values = c("steelblue", "tomato")) +
+  labs(title = "Log scale", x = NULL, y = "log(Diasorin)") +
+  theme_bw(base_size = 12) + theme(legend.position = "none")
+```
+
+```{r fig-5-2c}
+#| fig-cap: "Normal Q–Q plot for Low group (log scale)."
+df_log |> filter(group == "Low") |>
+  ggplot(aes(sample = log_score)) +
+  stat_qq(color = "steelblue") + stat_qq_line() +
+  labs(title = "Low Group — log scale", x = "Theoretical Quantiles",
+       y = "Sample Quantiles") +
+  theme_bw(base_size = 12)
+```
+
+```{r fig-5-2d}
+#| fig-cap: "Normal Q–Q plot for Normal group (log scale)."
+df_log |> filter(group == "Normal") |>
+  ggplot(aes(sample = log_score)) +
+  stat_qq(color = "tomato") + stat_qq_line() +
+  labs(title = "Normal Group — log scale", x = "Theoretical Quantiles",
+       y = "Sample Quantiles") +
+  theme_bw(base_size = 12)
+```
+
+::: callout-important
+### Key observation
+
+The raw data are **severely right-skewed** — a normal model is clearly untenable. After log-transformation, both Q–Q plots align reasonably well with the theoretical normal line. **We therefore work on the log scale throughout.**
+:::
+
+## The Statistical Model {#sec-model}
+
+### Sampling Model
+
+We assume independent samples from two normal populations on the **log scale**:
+
+$$y_{11}, \ldots, y_{1n_1} \mid \mu_1, \tau_1 \overset{\text{iid}}{\sim} N(\mu_1, 1/\tau_1)$$
+
+$$y_{21}, \ldots, y_{2n_2} \mid \mu_2, \tau_2 \overset{\text{iid}}{\sim} N(\mu_2, 1/\tau_2)$$
+
+The two groups are assumed independent.
+
+### Allowing Unequal Variances (Heteroscedasticity)
+
+**This is a critical modeling choice.** Unlike frequentist approaches, Bayesian inference has **no technical difficulty** with unequal variances: we simply assign separate priors to $\tau_1$ and $\tau_2$.
+
+However, unequal variances create an **interpretive challenge**:
+
+> If $\mu_2 > \mu_1$ but $\sigma_1 \gg \sigma_2$, a higher mean for population 2 does **not** imply that a randomly chosen individual from population 2 scores higher.
+
+```{r fig-5-3}
+#| fig-cap: "**Figure 5.3.** Two normal distributions with different means and variances. Population 1 has a much higher proportion above 7, even though its mean is lower."
+#| fig-height: 4
+x_seq <- seq(0, 10, length.out = 500)
+tibble(
+  x   = rep(x_seq, 2),
+  y   = c(dnorm(x_seq, 5, 2), dnorm(x_seq, 5.5, 0.4)),
+  Pop = rep(c("Population 1: N(5, 2²)", "Population 2: N(5.5, 0.4²)"), each = 500)
+) |>
+  ggplot(aes(x, y, color = Pop, linetype = Pop)) +
+  geom_line(linewidth = 1) +
+  geom_vline(xintercept = 7, linetype = "dotted", color = "gray40") +
+  annotate("text", x = 7.15, y = 0.9, label = "cutoff = 7", hjust = 0, size = 3.5) +
+  scale_color_manual(values = c("steelblue", "tomato")) +
+  labs(x = NULL, y = "Density", color = NULL, linetype = NULL) +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "bottom")
+```
+
+**Takeaway:** When variances differ substantially, comparing means alone is misleading. The textbook recommends **examining predictive distributions** rather than just posterior means.
+
+------------------------------------------------------------------------
+
+## Prior Elicitation {#sec-priors}
+
+### Eliciting $\mu_j$ Priors via Medians
+
+Because we work on the **log scale**, we elicit beliefs about the **median** of the original Diasorin values. If $y \sim N(\mu, 1/\tau)$ on the log scale, then the median of the original values is $e^\mu$.
+
+The procedure we use will be as follows:
+
+- Expert specifies best-guess median $\tilde{m}$ and an upper bound $\tilde{u}$ such that $P(\text{median} \leq \tilde{u}) = 0.95$.
+- Since $P(\mu \leq \log \tilde{m}) = 0.50$ and $P(\mu \leq \log \tilde{u}) = 0.95$, for the prior $\mu \sim N(a, b)$ we have:
+
+$$a = \log(\tilde{m}), \qquad b = \frac{[\log(\tilde{u}) - \log(\tilde{m})]^2}{1.645^2}$$
+
+```{r prior-mu}
+# Expert elicitation from Dr. Johann Herberth
+# Low group: median = 130, 95th percentile of median < 142
+m_tilde_L <- 130;  u_tilde_L <- 142
+a_L <- log(m_tilde_L)
+b_L <- (log(u_tilde_L) - log(m_tilde_L))^2 / 1.645^2
+cat(sprintf("Low group:    mu_L ~ N(%.4f, 1/%.5f)\n", a_L, b_L))
+
+# Normal group: median = 220, 95th percentile of median < 240
+m_tilde_N <- 220;  u_tilde_N <- 240
+a_N <- log(m_tilde_N)
+b_N <- (log(u_tilde_N) - log(m_tilde_N))^2 / 1.645^2
+cat(sprintf("Normal group: mu_N ~ N(%.4f, 1/%.5f)\n", a_N, b_N))
+```
+
+### Eliciting $\tau_j$ Priors via the 90th Percentile
+
+We elicit the expert's best guess for the **90th percentile** of Diasorin values in each group. Conditional on the best-guess median, if the 90th percentile guess is $\tilde{\gamma}_{0.9}$:
+
+$$\tau_0 = \frac{1.645^2}{\left[\log(\tilde{\gamma}_{0.9}/\tilde{m})\right]^2}$$
+
+We then set $c = 1 + \tau_0 d$ for a $\text{Gamma}(c, d)$ prior on $\tau$, where $d$ is chosen to reflect our uncertainty (small $d$ = vague, larger $d$ = more informative).
+
+```{r prior-tau}
+# Expert guess for 90th percentile
+g90_L <- 170;  g90_N <- 280
+
+tau0_L <- 1.645^2 / (log(g90_L / m_tilde_L))^2
+tau0_N <- 1.645^2 / (log(g90_N / m_tilde_N))^2
+cat(sprintf("tau0 (low):    %.4f\n", tau0_L))
+cat(sprintf("tau0 (normal): %.4f\n", tau0_N))
+
+d_val  <- 0.001
+c_L    <- 1 + tau0_L * d_val
+c_N    <- 1 + tau0_N * d_val
+cat(sprintf("\nWith d = %.3f:\n", d_val))
+cat(sprintf("tau_L ~ Gamma(%.5f, %.3f)\n", c_L, d_val))
+cat(sprintf("tau_N ~ Gamma(%.5f, %.3f)\n", c_N, d_val))
+```
+
+::: callout-warning
+#### Sensitivity of tau priors
+
+With $d = 0.001$, the Gamma means are on the order of 1000 — placing 97% of prior probability **above** the mode. This is a weakly informative prior that strongly favors large precision values. The textbook performs a **sensitivity analysis** varying $d \in \{0.001, 0.01, 0.1\}$. (Left as exercise.)
+:::
+
+------------------------------------------------------------------------
+
+## NIMBLE Implementation {#sec-nimble}
+
+### Model Code
+
+```{r nimble-model}
+diasorin_code <- nimbleCode({
+  # Likelihood (log-transformed data)
+  for (i in 1:n1) { y1[i] ~ dnorm(mu[1], tau = tau[1]) }
+  for (j in 1:n2) { y2[j] ~ dnorm(mu[2], tau = tau[2]) }
+
+  # Priors (informative)
+  mu[1]  ~ dnorm(a[1], sd = sqrt(b[1]))
+  mu[2]  ~ dnorm(a[2], sd = sqrt(b[2]))
+  tau[1] ~ dgamma(c[1], rate = d[1])
+  tau[2] ~ dgamma(c[2], rate = d[2])
+
+  # Derived quantities
+  sigma[1] <- 1 / sqrt(tau[1])
+  sigma[2] <- 1 / sqrt(tau[2])
+  delta    <- mu[2] - mu[1]          # Difference in log-scale means
+  tau_ratio <- tau[2] / tau[1]
+
+  # Predictive draws
+  yPred1 ~ dnorm(mu[1], tau = tau[1])
+  yPred2 ~ dnorm(mu[2], tau = tau[2])
+
+  # Back-transform to original scale
+  med1   <- exp(mu[1])
+  med2   <- exp(mu[2])
+  rmed   <- med2 / med1              # Relative median (normal / low)
+  predO1 <- exp(yPred1)              # Predictive original scale, low
+  predO2 <- exp(yPred2)              # Predictive original scale, normal
+
+  # Posterior probability that normal > low
+  P_mu   <- step(delta)
+})
+```
+
+### Data and Initial Values
+
+```{r nimble-data}
+log_low    <- log(low)
+log_normal <- log(normal)
+
+nimble_data <- list(
+  y1 = log_low,
+  y2 = log_normal
+)
+
+nimble_constants <- list(
+  n1 = n1, n2 = n2,
+  a  = c(a_L,  a_N),
+  b  = c(b_L,  b_N),   # precision for mu prior
+  c  = c(c_L,  c_N),
+  d  = c(d_val, d_val)
+)
+
+nimble_inits <- list(
+  mu    = c(mean(log_low), mean(log_normal)),
+  tau   = c(1, 1),
+  yPred1 = mean(log_low),
+  yPred2 = mean(log_normal)
+)
+```
+
+### Running MCMC
+
+```{r run-mcmc}
+#| results: hide
+#| cache: true
+set.seed(2024)
+
+model <- nimbleModel(
+  code      = diasorin_code,
+  data      = nimble_data,
+  constants = nimble_constants,
+  inits     = nimble_inits
+)
+
+compiled_model <- compileNimble(model)
+
+mcmc_conf <- configureMCMC(model,
+  monitors = c("mu", "tau", "sigma", "delta", "tau_ratio",
+               "med1", "med2", "rmed", "yPred1", "yPred2",
+               "predO1", "predO2", "P_mu"))
+
+mcmc      <- buildMCMC(mcmc_conf)
+c_mcmc    <- compileNimble(mcmc, project = model)
+
+c_mcmc$run(50000)
+samples   <- as.matrix(c_mcmc$mvSamples)
+
+# Discard burn-in
+burn_in   <- 5000
+samples   <- samples[(burn_in + 1):nrow(samples), ]
+```
+
+
+
+## Posterior Results {#sec-results}
+TODO: Check the following results with the textbook carefully.
+
+### Summary Table (Table 5.3 Equivalent)
+
+```{r table-results}
+post_summary <- function(samp, vars) {
+  sapply(vars, function(v) {
+    x <- samp[, v]
+    c(mean = mean(x), sd = sd(x),
+      `2.5%` = quantile(x, 0.025),
+      `50%`  = median(x),
+      `97.5%` = quantile(x, 0.975))
+  }) |> t() |> as.data.frame() |>
+    round(3)
+}
+
+vars_log <- c("mu[1]", "mu[2]", "delta", "tau[1]", "tau[2]", "tau_ratio")
+tbl_log  <- post_summary(samples, vars_log)
+rownames(tbl_log) <- c("µ₁ (Low)", "µ₂ (Normal)", "µ₂ − µ₁", "τ₁", "τ₂", "τ₂/τ₁")
+
+kable(tbl_log, caption = "Table 5.3. Posterior summaries (log scale, informative prior).",
+      digits = 3, align = "r")
+```
+
+::: callout-important
+#### Interpretation
+
+- $P(\mu_2 > \mu_1 \mid y) \approx 1$ — the normal group has a decisively higher log-scale mean.
+- The **predictive probability** that a new normal-group observation exceeds a new low-group observation is only about **0.66** — a subtle but critical distinction between means and individual-level prediction.
+:::
+
+## Predictive Distributions {#sec-predictive}
+
+### Predictive Densities — Log Scale (Figure 5.4)
+
+```{r fig-5-4}
+#| fig-cap: "**Figure 5.4.** Posterior predictive densities on the log scale."
+#| fig-height: 4
+tibble(
+  value = c(samples[, "yPred1"], samples[, "yPred2"]),
+  group = rep(c("Low", "Normal"), each = nrow(samples))
+) |>
+  ggplot(aes(value, fill = group, color = group)) +
+  geom_density(alpha = 0.3, linewidth = 1) +
+  scale_fill_manual(values  = c("steelblue", "tomato")) +
+  scale_color_manual(values = c("steelblue", "tomato")) +
+  labs(x = "log(Diasorin Score)", y = "Predictive Density",
+       fill = NULL, color = NULL) +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+### Predictive Densities — Original Scale (Figure 5.5)
+
+```{r fig-5-5}
+#| fig-cap: "**Figure 5.5.** Posterior predictive densities on the original scale. Note the severe right skew — means and SDs are uninformative here."
+#| fig-height: 4
+tibble(
+  value = c(samples[, "predO1"], samples[, "predO2"]),
+  group = rep(c("Low", "Normal"), each = nrow(samples))
+) |>
+  ggplot(aes(value, fill = group, color = group)) +
+  geom_density(alpha = 0.3, linewidth = 1) +
+  scale_fill_manual(values  = c("steelblue", "tomato")) +
+  scale_color_manual(values = c("steelblue", "tomato")) +
+  coord_cartesian(xlim = c(0, 1500)) +
+  labs(x = "Diasorin Score", y = "Predictive Density",
+       fill = NULL, color = NULL) +
+  theme_bw(base_size = 12) +
+  theme(legend.position = "top")
+```
+
+::: callout-note
+The log-scale predictive distributions are much easier to compare. The original-scale densities are **log-normal**: highly skewed, overlapping substantially. The textbook rightly emphasizes that **plotting predictive distributions** — not just reporting posterior means — is essential for sound conclusions when variances differ.
+:::
