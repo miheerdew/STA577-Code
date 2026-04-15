@@ -1,0 +1,15 @@
+## Linear Regression
+
+```{r}
+install.packages("Sleuth3")
+library(Sleuth3)
+
+data(case1202)
+
+pairs(~ Bsal + Educ + Exper + Senior + Age, 
+      data = case1202, 
+      main = "Scatterplot Matrix: Bank Salary Data",
+      pch = 19,      # Solid circles
+      col = "steelblue", 
+      cex = 0.7)     # Adjust point size
+```
