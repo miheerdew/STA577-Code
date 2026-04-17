@@ -50,8 +50,10 @@ Let's create the data matrices $Y$ and $X$ in R.
 
 ```{r}
 Y <- case1202$Bsal
-X <- as.matrix(cbind(1, case1202[, c("Educ", "Exper", "Senior", "Time")]))
-colnames(X) <- c("Intercept", "Educ", "Exper", "Senior", "Time")
+X <- as.matrix(cbind(1, 
+            case1202$Sex == "Male",
+            case1202[, c("Educ", "Exper", "Time")]))
+colnames(X) <- c("Intercept", "Sex", "Educ", "Exper", "Time")
 ```
 
 
