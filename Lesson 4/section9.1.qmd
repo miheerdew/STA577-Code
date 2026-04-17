@@ -1,15 +1,176 @@
+$$
+\newcommand{\iid}{\overset{\mathrm{iid}}{\sim}}
+\newcommand{\dGamma}{\operatorname{Gamma}}
+\newcommand{\MSE}{\operatorname{MSE}}
+$$
+
 ## Linear Regression
 
+We follow Chapter 9 of @BIDA.
+
+> **Example 9.1.1.** Schafer (1987) reported data from 1977 on 93 bank employees. The response variable is beginning salary in dollars. Along with the intercept, there are four covariates: $x_2$ -- sex, i.e., an indicator variable for "male"; $x_3$ -- years of education; $x_4$ -- months of experience; $x_5$ -- time at hiring as measured in months after January 1, 1969. Figure 9.1 gives a scatterplot matrix of the variables other than sex. These separate bivariate plots indicate that beginning salary is positively correlated with education, months of experience, and time of hiring.
+
 ```{r}
-install.packages("Sleuth3")
+#| echo: false
+#| warning: false
+#| fig-cap: "Scatterplot Matrix of Bank Salary Data (beginning salary, education, experience, seniority, time)"
+
+# install.packages('Sleuth3')
 library(Sleuth3)
+library(dplyr)
 
-data(case1202)
+case1202 <- case1202 |> rename(Time = Age)
 
-pairs(~ Bsal + Educ + Exper + Senior + Age, 
+pairs(~ Bsal + Educ + Exper + Senior + Time, 
       data = case1202, 
       main = "Scatterplot Matrix: Bank Salary Data",
       pch = 19,      # Solid circles
       col = "steelblue", 
       cex = 0.7)     # Adjust point size
+```
+
+
+We will regress $y$ on the other variables $x_1, x_2, x_3, x_4, x_5$ so that 
+$$
+y_i = \beta_0 + \beta_1 x_{i1} + \beta_2 x_{i2} + \beta_3 x_{i3} + \beta_4 x_{i4} + \beta_5 x_{i5} + \epsilon_i
+$$
+where $\epsilon_1, \ldots, \epsilon_n \iid N(0, 1/\tau)$. Here $i=1,\ldots, n$ refers to each of the $n=93$ employees.
+
+In matrix form, one writes this as
+$$
+Y = X \beta + \epsilon
+$$
+where 
+$$
+Y = \begin{pmatrix} y_1 \\ y_2 \\ \vdots \\ y_n \end{pmatrix}, \quad X = \begin{pmatrix} 1 & x_{11} & x_{12} & x_{13} & x_{14} \\ 1 & x_{21} & x_{22} & x_{23} & x_{24} \\ \vdots & \vdots & \vdots & \vdots & \vdots \\ 1 & x_{n1} & x_{n2} & x_{n3} & x_{n4} \end{pmatrix}, \quad \beta = \begin{pmatrix} \beta_0 \\ \beta_1 \\ \beta_2 \\ \beta_3 \\ \beta_4 \end{pmatrix}, \quad \varepsilon = \begin{pmatrix} \epsilon_1 \\ \epsilon_2 \\ \vdots \\ \epsilon_n \end{pmatrix}
+$$
+where $\varepsilon | \tau \sim N_n(0, \tau^{-1} I_n)$ and $r=5$ is the number of columns of the $X$ matrix. 
+
+Let's create the data matrices $Y$ and $X$ in R.
+
+```{r}
+Y <- case1202$Bsal
+X <- as.matrix(cbind(1, case1202[, c("Educ", "Exper", "Senior", "Time")]))
+colnames(X) <- c("Intercept", "Educ", "Exper", "Senior", "Time")
+```
+
+
+> What makes this specifically a regression model (rather than an arbitrary linear model) is that we require $X$ to have full column rank, i.e., $\operatorname{rank}(X)=r$. Unless $n \geq r$, the problem degenerates because there are more parameters than observations and $\operatorname{rank}(X)<r$. As in Section B.2, it follows from simple rules about expected values and covariances of linear transformations that $\mathrm{E}(Y)=X \beta$, $\operatorname{Cov}(Y)=\tau^{-1} I_n$, and therefore the linear regression sampling model is also written
+> $$
+> Y \mid \beta, \tau \sim N_n\left(X \beta, \tau^{-1} I_n\right) .
+> $$
+
+
+### Likelihood and point estimates
+
+The likelihood as a function of $\beta, \tau$ is given by 
+
+$\begin{aligned} L(\beta, \tau) & \propto \prod_{i=1}^n \tau^{1 / 2} \exp \left\{-\frac{\tau}{2}\left(y_i-x_i^{\prime} \beta\right)^2\right\} \\ & =\tau^{n / 2} \exp \left\{-\frac{\tau}{2} \sum_{i=1}^n\left(y_i-x_i^{\prime} \beta\right)^2\right\} \\ & =\tau^{n / 2} \exp \left\{-\frac{\tau}{2}(Y-X \beta)^{\prime}(Y-X \beta)\right\}\end{aligned}$
+
+In Section 9.2.1 of @BIDA, it is shown that the maximum likelihood estimate (MLE) of $\beta$ and $\tau$ is given by
+$$
+\hat{\beta} = (X'X)^{-1}X'Y, \quad \hat{\tau} = \frac{1}{n}(Y-X\hat{\beta})'(Y-X\hat{\beta})
+$$
+and $\hat{\tau} = n/SSE$ where
+$$
+SSE = (Y - X\hat{\beta})'(Y - X\hat{\beta})
+$$
+is the sum of square error. The standard unbiased (frequentist) estimate of $\sigma^2 = 1/\tau$ is
+$$
+\hat{\sigma}^2 = \frac{SSE}{dfe}
+$$
+where $dfe=n-r$ is the \emph{degrees of freedom} for the error.
+
+
+```{r}
+n <- nrow(X); r <- ncol(X)
+XtXinv <- solve(t(X) %*% X)
+betahat <- XtXinv %*% t(X) %*% Y
+SSE <- sum((Y - X %*% betahat)^2)
+dfe <- n - r
+MSE <- SSE / dfe
+print(betahat)
+print(MSE)
+```
+
+## Bayesian analysis
+
+For a Bayesian analysis, we need to specify a prior
+$p(\beta, \tau)$. We will focus on reference prior and an independence prior (informative prior).
+
+### Standard Improper Reference
+
+Under the SIR prior $p(\beta, \tau) \propto \tau^{-1}$, the posterior distribution mimics frequentist inference. Under this prior the posterior can  be shown to be
+$$
+\begin{aligned}
+\beta | \tau, Y &\sim N_r(\hat{\beta}, (\tau X X)^{-1})\\
+\tau | Y &\sim \dGamma(\frac{n-r}{2}, \frac{(Y-X\hat{\beta})^t (Y-X\hat{\beta})^t}{2} )
+\end{aligned}.
+$$
+
+The multivariate normal standardization then shows that for any $c \in \mathbb{R}^p$:
+$$
+\frac{c' \beta - c'\hat{\beta}}{\sqrt{\sigma^2 c' (X'X)^{-1} c}} | \tau, Y \sim N(0,1).
+$$
+
+The connection between Gamma and $\chi^2$ also shows that
+$$
+\frac{(Y-X\hat{\beta})'(Y-X\hat{\beta})}{\sigma^2} = \tau (SSE) | Y \sim \dGamma(\frac{n-r}{2}, \frac{1}{2}) = \chi^2_{n-r}.
+$$
+
+Finally, integrating out $\tau$ will show that
+$$
+\frac{c' \beta - c' \hat{\beta}}{\sqrt{\MSE c'(X'X)^{-1}c}} | Y \sim t(n-r)
+$$
+and when predicting a new observation $y_f$ with covariate $x_f$, we have
+$$
+\frac{y_f - x_f' \hat{\beta}}{\sqrt{\MSE[1+ x_f' (X'X)^{-1} x_f]}} | Y \sim t(n-r) 
+$$
+
+All these are exactly like frequentist inference, but with a Bayesian interpretation!
+
+> As far as standard point or interval estimation is concerned, Bayesians have little problem with frequentist normal theory regression results. However, Bayesian testing results are typically quite different from Neyman-Pearson testing results.
+
+Let's see these inferences numerically for our Bank Salary dataset. We will predict inference at a new observation $x_f = (1,1,16,54.3,33.0)$ corresponding to a male with 16 years of school, 54.5 months of experience, and hired 33 months after the start date for the study. The vector x f was chosen because it has the same covariates as the highest paid individual in the data, a man making $8,100.
+
+```{r}
+# closed-form frequentist/Bayes quantities under p(β,τ) ∝ τ^{-1}
+# posterior (marginal) for beta: multivariate t with mean=betahat, scale = sqrt(MSE * diag(XtXinv)), df = dfe
+se_beta <- sqrt(MSE * diag(XtXinv))
+t_q <- qt(0.975, df = dfe)
+beta_lower <- as.numeric(betahat) - t_q * se_beta
+beta_upper <- as.numeric(betahat) + t_q * se_beta
+
+# x_f and predictive summaries (use x_f from text: male, Educ=16, Exp=54.5, Time=33.0)
+x_f <- c(1, 1, 16, 54.5, 33.0)
+xb_mean <- as.numeric(t(x_f) %*% betahat)
+xb_se <- sqrt(as.numeric(MSE * (t(x_f) %*% XtXinv %*% x_f)))
+xb_lower <- xb_mean - t_q * xb_se
+xb_upper <- xb_mean + t_q * xb_se
+
+# predictive y_f (adds residual variance)
+yf_mean <- xb_mean
+yf_se <- sqrt(as.numeric(MSE * (1 + t(x_f) %*% XtXinv %*% x_f)))
+yf_lower <- yf_mean - t_q * yf_se
+yf_upper <- yf_mean + t_q * yf_se
+
+# posterior for tau: Gamma(shape = (n-r)/2, rate = SSE/2)
+shape_tau <- (n - r) / 2
+rate_tau <- SSE / 2
+tau_mean <- shape_tau / rate_tau
+tau_sd <- sqrt(shape_tau) / rate_tau
+tau_q <- qgamma(c(0.025, 0.975), shape = shape_tau, rate = rate_tau)
+```
+
+```{r}
+# assemble table
+table_df <- tibble::tibble(
+  Parameter = c("Constant", "Sex", "Educ", "Exp", "Time", "x_f' * beta", "y_f", "tau"),
+  Mean = c(as.numeric(betahat), xb_mean, yf_mean, tau_mean),
+  Scale = c(se_beta, xb_se, yf_se, tau_sd),
+  `2.5%` = c(beta_lower, xb_lower, yf_lower, tau_q[1]),
+  `97.5%` = c(beta_upper, xb_upper, yf_upper, tau_q[2])
+)
+
+knitr::kable(table_df, digits = 1)
 ```
