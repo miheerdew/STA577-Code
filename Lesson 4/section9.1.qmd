@@ -71,17 +71,17 @@ $\begin{aligned} L(\beta, \tau) & \propto \prod_{i=1}^n \tau^{1 / 2} \exp \left\
 
 In Section 9.2.1 of @BIDA, it is shown that the maximum likelihood estimate (MLE) of $\beta$ and $\tau$ is given by
 $$
-\hat{\beta} = (X'X)^{-1}X'Y, \quad \hat{\tau} = \frac{1}{n}(Y-X\hat{\beta})'(Y-X\hat{\beta})
+\hat{\beta} = (X'X)^{-1}X'Y
 $$
 and $\hat{\tau} = n/SSE$ where
 $$
-SSE = (Y - X\hat{\beta})'(Y - X\hat{\beta})
+SSE \doteq (Y - X\hat{\beta})'(Y - X\hat{\beta})
 $$
 is the sum of square error. The standard unbiased (frequentist) estimate of $\sigma^2 = 1/\tau$ is
 $$
-\hat{\sigma}^2 = \frac{SSE}{dfe}
+MSE \doteq \frac{SSE}{dfe}
 $$
-where $dfe=n-r$ is the \emph{degrees of freedom} for the error.
+where $dfe \doteq n-r$ is the \emph{degrees of freedom} for the error. Recall here that $r$ is the size of the $\beta = (\beta_0, \beta_1, \ldots, \beta_{r-1})'$ vector. 
 
 
 ```{r}
@@ -113,66 +113,111 @@ $$
 The multivariate normal standardization then shows that for any $c \in \mathbb{R}^p$:
 $$
 \frac{c' \beta - c'\hat{\beta}}{\sqrt{\sigma^2 c' (X'X)^{-1} c}} | \tau, Y \sim N(0,1).
-$$
+$$ {#eq-beta-given-tau}
 
 The connection between Gamma and $\chi^2$ also shows that
 $$
 \frac{(Y-X\hat{\beta})'(Y-X\hat{\beta})}{\sigma^2} = \tau (SSE) | Y \sim \dGamma(\frac{n-r}{2}, \frac{1}{2}) = \chi^2_{n-r}.
-$$
+$$ {#eq-SSE-gamma}
 
 Finally, integrating out $\tau$ will show that
 $$
 \frac{c' \beta - c' \hat{\beta}}{\sqrt{\MSE c'(X'X)^{-1}c}} | Y \sim t(n-r)
-$$
+$$ {#eq-beta-marginal}
 and when predicting a new observation $y_f$ with covariate $x_f$, we have
 $$
 \frac{y_f - x_f' \hat{\beta}}{\sqrt{\MSE[1+ x_f' (X'X)^{-1} x_f]}} | Y \sim t(n-r) 
-$$
+$$ {#eq-predictive}
 
 All these are exactly like frequentist inference, but with a Bayesian interpretation!
 
 > As far as standard point or interval estimation is concerned, Bayesians have little problem with frequentist normal theory regression results. However, Bayesian testing results are typically quite different from Neyman-Pearson testing results.
 
-Let's see these inferences numerically for our Bank Salary dataset. We will predict inference at a new observation $x_f = (1,1,16,54.3,33.0)$ corresponding to a male with 16 years of school, 54.5 months of experience, and hired 33 months after the start date for the study. The vector x f was chosen because it has the same covariates as the highest paid individual in the data, a man making $8,100.
+#### Theoretical derivations
+
+Here I will mainly show how to use these formulas for obtaining Bayesian inferences, but you should read Section 9.2.2 of @BIDA for the derivation of the above formulas. I will however ask that you to solve the following exercise as part of your last assignment.
+
+**Exercise 9.5**. Prediction of $y_f$. (a) Derive the predictive density for a future response $y_f$ from an experimental unit that has a known covariate combination $x_f$, i.e., show that
+$$
+y_f \mid x_f, Y \sim t\left(n-r, x_f^{\prime} \hat{\beta}, \sqrt{M S E\left(1+x_f^{\prime}\left(X^{\prime} X\right)^{-1} x_f\right)}\right),
+$$
+
+cf. Exercise 9.4 and Subsection 5.2.1. (b) Explain how you would use the method of composition to obtain a numerical approximation to a $95 \% \mathrm{PI}$ for $y_f$.
+
+- Here the "method of composition" that the book mentions basically says that if we have $p(\mu,\nu) = p(\mu|\nu)p(\nu)$ (and thus marginally $p(\mu) = \int p(\mu|\nu) p(\nu) d\nu$) we can draw i.i.d. samples $\mu_1, \ldots, \mu_n \sim p(\mu)$ by first drawing independently $\nu_1, \ldots, \nu_m \sim p(\nu)$ and then drawing $\mu_i \sim p(\mu|\nu_i)$ independently for each $i=1, \ldots, m$.
+
+#### Actual computations
+
+Let's see how to use these formulas for the actual numerical analysis of our Bank Salary dataset. 
+
+By taking $c = e_j$ in @eq-beta-marginal we have for every $j \in \{0, \ldots, r-1\}$
+$$
+\frac{\beta_j - \hat{\beta}_j}{\sqrt{\MSE \left(X'X\right)^{-1}_{jj}}} | Y \sim t(n-r)
+$$
+
+We use the above to find the 95\% confidence intervals for each component of $\beta$:
 
 ```{r}
-# closed-form frequentist/Bayes quantities under p(β,τ) ∝ τ^{-1}
-# posterior (marginal) for beta: multivariate t with mean=betahat, scale = sqrt(MSE * diag(XtXinv)), df = dfe
 se_beta <- sqrt(MSE * diag(XtXinv))
 t_q <- qt(0.975, df = dfe)
 beta_lower <- as.numeric(betahat) - t_q * se_beta
 beta_upper <- as.numeric(betahat) + t_q * se_beta
+```
 
+```{r}
+#| fig-cap: "Posterior for the regression coefficients"
+#| echo: false
+beta_df <- tibble::tibble(
+  `Coefficient` = colnames(X),
+  `Mean` = as.numeric(betahat),
+  `2.5%` = beta_upper,
+  `97.5%` = beta_lower
+)
+knitr::kable(beta_df, digits = 1)
+```
+
+Next, @eq-SSE-gamma provides the distribution of the scale parameter:
+$$
+\tau | Y \sim \dGamma(\frac{n-r}{2}, SSE/2)
+$$
+
+```{r}
+shape_tau <- (n - r) / 2
+rate_tau <- SSE / 2
+tau_mean <- shape_tau / rate_tau
+tau_sd <- sqrt(shape_tau) / rate_tau
+tau_q <- qgamma(c(0.025, 0.975), shape = shape_tau, rate = rate_tau)
+names(tau_q) <- c("2.5%", "97.5%")
+print(tau_q)
+```
+
+Finally, we study both the mean response (taking $c=x_f$ in  @eq-beta-marginal) and predictive distribution @eq-predictive at a "future" observation $x_f = (1,1,16,54.3,33.0)$ corresponding to a male with 16 years of school, 54.5 months of experience, and hired 33 months after the start date for the study, noting:
+$$
+\begin{align}
+\frac{x_f' \beta - x_f' \hat{\beta}}{\sqrt{\MSE[x_f' (X'X)^{-1} x_f]}} &| Y \sim t(n-r) \\
+\frac{y_f - x_f' \hat{\beta}}{\sqrt{\MSE[1+ x_f' (X'X)^{-1} x_f]}} &| Y \sim t(n-r) 
+\end{align}
+$$
+
+```{r}
 # x_f and predictive summaries (use x_f from text: male, Educ=16, Exp=54.5, Time=33.0)
 x_f <- c(1, 1, 16, 54.5, 33.0)
 xb_mean <- as.numeric(t(x_f) %*% betahat)
 xb_se <- sqrt(as.numeric(MSE * (t(x_f) %*% XtXinv %*% x_f)))
 xb_lower <- xb_mean - t_q * xb_se
 xb_upper <- xb_mean + t_q * xb_se
+c(xb_lower, xb_upper)
+```
 
+```{r}
 # predictive y_f (adds residual variance)
 yf_mean <- xb_mean
 yf_se <- sqrt(as.numeric(MSE * (1 + t(x_f) %*% XtXinv %*% x_f)))
 yf_lower <- yf_mean - t_q * yf_se
 yf_upper <- yf_mean + t_q * yf_se
-
-# posterior for tau: Gamma(shape = (n-r)/2, rate = SSE/2)
-shape_tau <- (n - r) / 2
-rate_tau <- SSE / 2
-tau_mean <- shape_tau / rate_tau
-tau_sd <- sqrt(shape_tau) / rate_tau
-tau_q <- qgamma(c(0.025, 0.975), shape = shape_tau, rate = rate_tau)
+c(yf_lower, yf_upper)
 ```
 
-```{r}
-# assemble table
-table_df <- tibble::tibble(
-  Parameter = c("Constant", "Sex", "Educ", "Exp", "Time", "x_f' * beta", "y_f", "tau"),
-  Mean = c(as.numeric(betahat), xb_mean, yf_mean, tau_mean),
-  Scale = c(se_beta, xb_se, yf_se, tau_sd),
-  `2.5%` = c(beta_lower, xb_lower, yf_lower, tau_q[1]),
-  `97.5%` = c(beta_upper, xb_upper, yf_upper, tau_q[2])
-)
 
-knitr::kable(table_df, digits = 1)
-```
+The vector $x_f$ was chosen because it has the same covariates as the highest paid individual in the data, a man making $8,100.
+
