@@ -206,7 +206,7 @@ xb_mean <- as.numeric(t(x_f) %*% betahat)
 xb_se <- sqrt(as.numeric(MSE * (t(x_f) %*% XtXinv %*% x_f)))
 xb_lower <- xb_mean - t_q * xb_se
 xb_upper <- xb_mean + t_q * xb_se
-cat("95% CI for mean salary:", xb_lower, xb_upper)
+cat("95% probability interval for mean salary:", xb_lower, xb_upper)
 ```
 
 ```{r}
@@ -215,7 +215,7 @@ yf_mean <- xb_mean
 yf_se <- sqrt(as.numeric(MSE * (1 + t(x_f) %*% XtXinv %*% x_f)))
 yf_lower <- yf_mean - t_q * yf_se
 yf_upper <- yf_mean + t_q * yf_se
-cat("95% PI for actual salary:", yf_lower, yf_upper)
+cat("95% probability interval for actual salary:", yf_lower, yf_upper)
 ```
 
 
