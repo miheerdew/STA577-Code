@@ -30,9 +30,9 @@ pairs(~ Bsal + Educ + Exper + Senior + Time,
 ```
 
 
-We will regress $y$ on the other variables $x_1, x_2, x_3, x_4, x_5$ so that 
+We will regress $y$ on the other variables $x_2=\textrm{male}$, $x_3 = \textrm{education}$, $x_4 = \textrm{experience}$, $x_5 = \textrm{time}$ so that 
 $$
-y_i = \beta_0 + \beta_1 x_{i1} + \beta_2 x_{i2} + \beta_3 x_{i3} + \beta_4 x_{i4} + \beta_5 x_{i5} + \epsilon_i
+y_i = \beta_1 + \beta_2 x_{i2} + \beta_3 x_{i3} + \beta_4 x_{i4} + \beta_5 x_{i5} + \epsilon_i
 $$
 where $\epsilon_1, \ldots, \epsilon_n \iid N(0, 1/\tau)$. Here $i=1,\ldots, n$ refers to each of the $n=93$ employees.
 
@@ -42,7 +42,7 @@ Y = X \beta + \epsilon
 $$
 where 
 $$
-Y = \begin{pmatrix} y_1 \\ y_2 \\ \vdots \\ y_n \end{pmatrix}, \quad X = \begin{pmatrix} 1 & x_{11} & x_{12} & x_{13} & x_{14} \\ 1 & x_{21} & x_{22} & x_{23} & x_{24} \\ \vdots & \vdots & \vdots & \vdots & \vdots \\ 1 & x_{n1} & x_{n2} & x_{n3} & x_{n4} \end{pmatrix}, \quad \beta = \begin{pmatrix} \beta_0 \\ \beta_1 \\ \beta_2 \\ \beta_3 \\ \beta_4 \end{pmatrix}, \quad \varepsilon = \begin{pmatrix} \epsilon_1 \\ \epsilon_2 \\ \vdots \\ \epsilon_n \end{pmatrix}
+Y = \begin{pmatrix} y_1 \\ y_2 \\ \vdots \\ y_n \end{pmatrix}, \quad X = \begin{pmatrix} 1 & x_{12} & x_{13} & x_{14} & x_{15} \\ 1 & x_{22} & x_{23} & x_{24} & x_{25} \\ \vdots & \vdots & \vdots & \vdots & \vdots \\ 1 & x_{n2} & x_{n3} & x_{n4} & x_{n5} \end{pmatrix}, \quad \beta = \begin{pmatrix} \beta_1 \\ \beta_2 \\ \beta_3 \\ \beta_4 \\ \beta_5 \end{pmatrix}, \quad \varepsilon = \begin{pmatrix} \epsilon_1 \\ \epsilon_2 \\ \vdots \\ \epsilon_n \end{pmatrix}
 $$
 where $\varepsilon | \tau \sim N_n(0, \tau^{-1} I_n)$ and $r=5$ is the number of columns of the $X$ matrix. 
 
@@ -170,8 +170,8 @@ beta_upper <- as.numeric(betahat) + t_q * se_beta
 beta_df <- tibble::tibble(
   `Coefficient` = colnames(X),
   `Mean` = as.numeric(betahat),
-  `2.5%` = beta_upper,
-  `97.5%` = beta_lower
+  `2.5%` = beta_lower,
+  `97.5%` = beta_upper
 )
 knitr::kable(beta_df, digits = 1)
 ```
@@ -206,7 +206,7 @@ xb_mean <- as.numeric(t(x_f) %*% betahat)
 xb_se <- sqrt(as.numeric(MSE * (t(x_f) %*% XtXinv %*% x_f)))
 xb_lower <- xb_mean - t_q * xb_se
 xb_upper <- xb_mean + t_q * xb_se
-c(xb_lower, xb_upper)
+cat("95% CI for mean salary:", xb_lower, xb_upper)
 ```
 
 ```{r}
@@ -215,9 +215,9 @@ yf_mean <- xb_mean
 yf_se <- sqrt(as.numeric(MSE * (1 + t(x_f) %*% XtXinv %*% x_f)))
 yf_lower <- yf_mean - t_q * yf_se
 yf_upper <- yf_mean + t_q * yf_se
-c(yf_lower, yf_upper)
+cat("95% PI for actual salary:", yf_lower, yf_upper)
 ```
 
 
-The vector $x_f$ was chosen because it has the same covariates as the highest paid individual in the data, a man making $8,100.
+The vector $x_f$ was chosen because it has the same covariates as the highest paid individual in the data, a man making $8,100. This person seems overpayed in comparison to predictive salary.
 
