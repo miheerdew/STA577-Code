@@ -1,0 +1,380 @@
+The analysis here follows Section 9.4 of @BIDA.
+
+```{r setup, include=FALSE}
+library(Hmisc)
+library(nimble)
+library(ggplot2)
+library(coda)
+```
+
+# Motivation: The FEV Study
+
+The **Forced Expiratory Volume (FEV)** dataset (Rosner, 2006) is introduced as Example 7.1.1 in @BIDA, which measures pulmonary function in adolescents. The response $y$ is the volume of air (liters) expelled in 1 second of a forceful breath.
+
+Lung function is expected to increase during adolescence, but smoking may slow its progression. We have $n = 345$ adolescents aged 10–19. The predictor variables include age and smoking status (NS-not current smoker and S-current smoker).
+
+**Scientific question:** Does smoking slow the development of lung capacity during adolescence?
+
+## The Confounding Problem
+
+First we obtain and filter the dataset from the `Hmisc` package:
+
+```{r load-data}
+library(Hmisc)
+getHdata(FEV)
+
+fev <- subset(FEV, age >= 10 & age <= 19)   # 345 adolescents as in textbook
+# create a binary variable for smoking status
+fev$smoke01  <- as.numeric(fev$smoke == "current smoker")
+# we create an interaction term for regression
+fev$ageSmoke <- fev$age * fev$smoke01
+```
+
+Here are some details of the dataset:
+
+```{r}
+#| echo: false
+cat("Dataset dimensions:", nrow(fev), "x", ncol(fev), "\n")
+cat("Age range:", range(fev$age), "\n")
+cat("Smokers:", sum(fev$smoke01), "  Nonsmokers:", sum(1 - fev$smoke01), "\n")
+cat("Mean FEV:", mean(fev$fev[fev$smoke01 == 1]), " (smokers) vs ", mean(fev$fev[fev$smoke01 == 0]), " (nonsmokers)\n")
+```
+
+While the last metric suggests smokers have better lung function than non-smokers, this is not the case. The problem is confounding due to age: older adolescents are more likely to smoke and have heigher lung function!
+
+We need to account for `age` for age in our analysis. The following plot suggest that smoking indeed degreades FEV
+
+```{r confounding-plot, fig.height=4, fig.width=7}
+#| echo: false
+#| warnings: false
+#| message: false
+ggplot(fev, aes(x = age, y = fev, color = smoke, shape = smoke)) +
+  geom_jitter(size = 1.5, width = 0.25, height=0, alpha = 0.75) +
+  geom_smooth(method = "lm", se = FALSE, linewidth = 1) +
+  labs(
+    title = "FEV vs Age by Smoking Status",
+    subtitle = "Confounding is visible: smokers tend to be older",
+    x = "Age in years (jittered)", y = "FEV (liters)",
+    color = "Smoking Status", shape = "Smoking Status"
+  ) +
+  theme_bw()
+```
+
+## The Regression Model
+
+We fit a normal linear model with an **interaction between age and smoking status**:
+
+$$y_i \mid \beta, \tau \sim N(x_i'\beta,\; \tau^{-1}), \quad i = 1, \ldots, n$$
+
+with predictor vector $x_i' = (1,\; \text{age}_i,\; \text{smoke}_i,\; \text{age}_i \cdot \text{smoke}_i)$ and parameter vector $\beta = (\beta_1, \beta_2, \beta_3, \beta_4)'$.
+
+Thus for non-smokers ($\text{smoke}_i = 0$) we fit the model:
+$$y_i = \beta_1 + \beta_2 \text{age}_i + \epsilon_i,$$
+while for smokers ($\text{smoke}_i = 1$) we fit
+$$y_i = (\beta_1 + \beta_3) + (\beta_2 + \beta_4) \text{age}_i + \epsilon_i$$
+
+**Interpretation of coefficients:**
+
+- $\beta_1$: intercept (baseline FEV at age 0 for nonsmokers — extrapolation only)
+- $\beta_2$: rate of FEV increase per year for *nonsmokers*
+- $\beta_3$: difference in intercepts between smokers and nonsmokers
+- $\beta_4$: difference in age slopes between smokers and nonsmokers (the key parameter for our question)
+
+```{r design-matrix}
+X <- cbind(1, fev$age, fev$smoke01, fev$ageSmoke)
+y <- fev$fev
+colnames(X) <- c("Intercept", "Age", "Smoke", "Age:Smoke")
+X[sample(nrow(X), 10),]
+```
+
+## Bayesian analysis
+
+For a Bayesian analysis, we need to assume priors a $p(\beta, \tau)$. Here we will focus on informative priors, but for your last homework you will compare the results with SIR priors.
+
+Following Section 9.4 of @BIDA, it seems easiest to elicit prior when we assume prior independence of $\beta$ and $\tau$:
+
+$$p(\beta, \tau) = p(\beta) \cdot p(\tau)$$
+
+with
+
+$$\beta \sim N_r(\beta_0, C_0) \quad \perp\!\!\!\perp \quad \tau \sim \mathrm{Gamma}(a, b).$$
+
+Our task is to determine $\beta_0$, $C_0$, $a$, and $b$ by asking our expert questions about their beliefs. The key insight of the **BCJ (Branscum–Christensen–Johnson) method** is to elicit priors on *observable conditional means* rather than on $\beta$ directly.
+
+------------------------------------------------------------------------
+
+# Prior Elicitation for $\beta$ 
+
+## The BCJ Strategy
+
+Individual regression coefficients $\beta_j$ are abstract — they have no direct physical interpretation. Instead, the BCJ method elicits priors on conditional means
+
+$$\tilde{m}_i \equiv E[y \mid \tilde{x}_i] = \tilde{x}_i'\beta$$
+
+for $r = 4$ subpopulations defined by covariate vectors $\tilde{x}_1, \ldots, \tilde{x}_4$ that an expert can assess **independently**. We then *induce* a prior on $\beta$.
+
+## Choosing the Elicitation Points
+
+We choose four covariate combinations that span the age and smoking space:
+
+| Group | $\tilde{x}_i'$   | Description           |
+|-------|------------------|-----------------------|
+| 1     | $(1, 11, 0, 0)$  | 11-year-old nonsmoker |
+| 2     | $(1, 13, 1, 13)$ | 13-year-old smoker    |
+| 3     | $(1, 16, 0, 0)$  | 16-year-old nonsmoker |
+| 4     | $(1, 18, 1, 18)$ | 18-year-old smoker    |
+
+This gives the **design matrix for elicitation**:
+
+$$\tilde{X} = \begin{bmatrix} 1 & 11 & 0 & 0 \\ 1 & 13 & 1 & 13 \\ 1 & 16 & 0 & 0 \\ 1 & 18 & 1 & 18 \end{bmatrix}$$
+
+```{r Xtilde}
+X_tilde <- matrix(c(1, 11,  0,  0,
+                    1, 13,  1, 13,
+                    1, 16,  0,  0,
+                    1, 18,  1, 18),
+                  nrow = 4, byrow = TRUE)
+rownames(X_tilde) <- c("11yr NS", "13yr S", "16yr NS", "18yr S")
+colnames(X_tilde) <- c("1", "Age", "Smoke", "Age:Smoke")
+X_tilde
+```
+
+## Eliciting Normal Priors on Conditional Means
+
+A collaborator with domain knowledge (a pulmonologist, say) provides the following assessments. For each group, we elicit a best guess $\tilde{y}_i$ (prior mean of $\tilde{m}_i$) and a bound that translates to a prior variance $\tilde{w}_i$.
+
+**Example: 18-year-old smokers (**$\tilde{m}_4$). The expert believes:
+
+- Best guess for mean FEV: $\tilde{y}_4 = 3.3$ liters
+- 99% sure the mean FEV is less than 4.0 liters
+
+Under a normal prior, the 99th percentile satisfies $4.0 = 3.3 + 2.33\sqrt{\tilde{w}_4}$, so
+
+$$\tilde{w}_4 = \frac{(4.0 - 3.3)^2}{2.33^2} = \frac{0.49}{5.4289} \approx 0.09$$
+
+Applying the same logic to all four groups yields:
+
+$$\tilde{m} = \tilde{X}\beta \sim N_4\!\left( \begin{bmatrix} 2.8 \\ 3.0 \\ 4.0 \\ 3.3 \end{bmatrix},\; \begin{bmatrix} 0.04 & 0 & 0 & 0 \\ 0 & 0.04 & 0 & 0 \\ 0 & 0 & 0.04 & 0 \\ 0 & 0 & 0 & 0.09 \end{bmatrix} \right)$$
+
+```{r elicitation}
+y_tilde <- c(2.8, 3.0, 4.0, 3.3)
+D_tilde <- diag(c(0.04, 0.04, 0.04, 0.09))
+```
+
+## Inducing the Prior on $\beta$
+
+Since $\tilde{m} = \tilde{X}\beta$ is multivariate normal and $\tilde{X}$ is invertible, we have $\beta = \tilde{X}^{-1}\tilde{m}$, which gives
+
+$$\beta \sim N_r\!\left(\tilde{X}^{-1}\tilde{Y},\; \tilde{X}^{-1} D(\tilde{w}) \tilde{X}^{-1\prime}\right)$$
+
+```{r induced-prior-beta}
+X_tilde_inv <- solve(X_tilde)
+
+beta0 <- X_tilde_inv %*% y_tilde
+C0    <- X_tilde_inv %*% D_tilde %*% t(X_tilde_inv)
+
+cat("Prior mean for beta:\n")
+print(round(beta0, 4))
+
+cat("\nPrior covariance matrix for beta:\n")
+print(round(C0, 4))
+
+cat("\nPrior standard deviations for beta:\n")
+print(round(sqrt(diag(C0)), 4))
+```
+
+**Note:** The prior on $\beta$ is *not* diagonal — the components of $\beta$ are correlated a priori, even though the $\tilde{m}_i$ were specified independently. This is an automatic consequence of the linear relationship $\tilde{m} = \tilde{X}\beta$.
+
+# Prior Elicitation for $\tau$
+
+## Mode-and-Percentile Elicitation
+
+To choose $a$ and $b$ in $\tau \sim \mathrm{Gamma}(a, b)$, we elicit two pieces of information about **individual-level variability** (not about the mean FEV).
+
+**Step 1 — Best guess for the 95th percentile of FEV among 18-year-old smokers.**
+
+Under normality, the 95th percentile of FEV is $\tilde{m}_4 + 1.645\sigma$. With $\tilde{m}_4 = 3.3$ (our best guess) and the expert's best guess for the 95th percentile being 5.0, we get:
+
+$$5.0 = 3.3 + 1.645\sigma_0 \implies \sigma_0 = \frac{1.7}{1.645} \implies \tau_0 = \left(\frac{1.645}{1.7}\right)^2 \approx 0.94$$
+
+This gives the **mode** of the Gamma prior: $\frac{a-1}{b} = 0.94$, i.e. $a = 0.94b + 1$.
+
+**Step 2 — Lower bound on the 95th percentile.**
+
+We are 95% sure that the 95th percentile of FEV exceeds 4.0:
+
+$$0.95 = P(\tilde{m}_4 + 1.645\sigma > 4.0) = P\!\left(\tau < \left(\frac{1.645}{0.7}\right)^2\right) = P(\tau < 5.52)$$
+
+We find $b$ such that $\mathrm{Gamma}(0.94b+1,\, b)$ has its 95th percentile equal to 5.52.
+
+```{r tau-prior}
+b_grid <- seq(0.01, 1.5, by = 0.01)
+a_grid <- 0.94 * b_grid + 1
+p95    <- pgamma(5.52, shape = a_grid, rate = b_grid)
+
+# Find b where p95 is closest to 0.95
+idx <- which.min(abs(p95 - 0.95))
+
+cat("Approximate solution:\n")
+cat(sprintf("  b = %.2f,  a = %.4f,  P(tau < 5.52) = %.5f\n",
+            b_grid[idx], a_grid[idx], p95[idx]))
+
+# Show nearby values (like the textbook table)
+cat("\nNeighborhood:\n")
+print(data.frame(a = round(a_grid[(idx-2):(idx+2)], 4),
+                 b = b_grid[(idx-2):(idx+2)],
+                 p95 = round(p95[(idx-2):(idx+2)], 5)))
+
+a_tau <- a_grid[idx]
+b_tau <- b_grid[idx]
+```
+
+```{r tau-prior-plot, fig.height=3.5, fig.width=6}
+# Visualize the prior on sigma = tau^{-1/2}
+set.seed(42)
+tau_samples <- rgamma(50000, shape = a_tau, rate = b_tau)
+sigma_samples <- 1 / sqrt(tau_samples)
+
+hist(sigma_samples, breaks = 60, probability = TRUE,
+     main = expression("Prior distribution of " * sigma),
+     xlab = expression(sigma), col = "steelblue", border = "white")
+abline(v = quantile(sigma_samples, c(0.025, 0.975)), col = "red", lty = 2)
+legend("topright", legend = "95% prior interval", lty = 2, col = "red")
+```
+
+# Posterior Inference with NIMBLE
+
+## NIMBLE Model Specification
+
+```{r nimble-model, results='hide'}
+fev_code <- nimbleCode({
+  # Likelihood
+  for (i in 1:n) {
+    y[i] ~ dnorm(mu[i], tau = tau)
+    mu[i] <- inprod(beta[1:r], X[i, 1:r])
+  }
+
+  # Independence prior: beta independent of tau
+  beta[1:r] ~ dmnorm(beta0[1:r], cov = C0[1:r, 1:r])
+  tau        ~ dgamma(a_tau, b_tau)
+
+  # Derived quantities
+  sigma <- 1 / sqrt(tau)
+
+  # Posterior predictive for a new 18-year-old smoker
+  mu_new <- inprod(beta[1:r], x_new[1:r])
+  y_new  ~ dnorm(mu_new, tau = tau)
+})
+```
+
+## Data and Constants
+
+```{r nimble-data}
+r <- 4
+x_new <- c(1, 18, 1, 18)   # 18-year-old smoker
+
+fev_data <- list(
+  y = y,
+  X = X
+)
+
+fev_const <- list(
+  n     = nrow(X),
+  r     = r,
+  beta0 = as.vector(beta0),
+  C0    = C0,
+  a_tau = a_tau,
+  b_tau = b_tau,
+  x_new = x_new
+)
+
+fev_inits <- list(
+  beta  = as.vector(beta0),
+  tau   = 1.0,
+  y_new = 3.3
+)
+```
+
+## Running the MCMC
+
+```{r nimble-run, cache=TRUE, results='hide'}
+set.seed(577)
+
+fev_model  <- nimbleModel(fev_code, constants = fev_const,
+                          data = fev_data, inits = fev_inits)
+fev_compiled <- compileNimble(fev_model)
+
+fev_conf <- configureMCMC(fev_model,
+                          monitors = c("beta", "tau", "sigma", "mu_new", "y_new"))
+fev_mcmc <- buildMCMC(fev_conf)
+fev_mcmc_compiled <- compileNimble(fev_mcmc, project = fev_model)
+
+samples <- runMCMC(fev_mcmc_compiled, niter = 30000, nburnin = 5000,
+                   nchains = 2, samplesAsCodaMCMC = TRUE)
+```
+
+## Convergence Diagnostics
+
+```{r convergence, fig.height=5, fig.width=8}
+gelman.diag(samples[, c("beta[1]","beta[2]","beta[3]","beta[4]","sigma")])
+```
+
+```{r traceplots, fig.height=4, fig.width=8}
+plot(samples[, c("beta[2]", "beta[4]", "sigma")],
+     main = "Traceplots for key parameters")
+```
+
+## Posterior Summaries
+
+```{r posterior-summary}
+all_samples <- do.call(rbind, samples)
+
+params <- c("beta[1]","beta[2]","beta[3]","beta[4]","sigma","mu_new","y_new")
+summ <- t(apply(all_samples[, params], 2, function(x)
+  c(Mean = mean(x), SD = sd(x),
+    `2.5%` = quantile(x, 0.025),
+    `97.5%` = quantile(x, 0.975))))
+
+knitr::kable(round(summ, 4),
+             caption = "Posterior summaries: FEV model with BCJ independence prior")
+```
+
+## Interpretation
+
+```{r interpretation}
+beta_samples <- all_samples[, paste0("beta[", 1:4, "]")]
+
+# P(beta4 < 0): is the smoking effect on the age slope negative?
+p_neg_slope <- mean(beta_samples[, 4] < 0)
+cat(sprintf("P(beta4 < 0 | data) = %.3f\n", p_neg_slope))
+
+# Estimated smoking effect at age 15
+smoke_effect_15 <- beta_samples[, 3] + 15 * beta_samples[, 4]
+cat(sprintf("\nSmoking effect on mean FEV at age 15:\n"))
+cat(sprintf("  Mean: %.3f  SD: %.3f  95%% CI: (%.3f, %.3f)\n",
+            mean(smoke_effect_15), sd(smoke_effect_15),
+            quantile(smoke_effect_15, 0.025),
+            quantile(smoke_effect_15, 0.975)))
+```
+
+```{r posterior-pred-plot, fig.height=4, fig.width=7}
+# Posterior predictive distribution for an 18-year-old smoker
+y_new_samples <- all_samples[, "y_new"]
+
+hist(y_new_samples, breaks = 60, probability = TRUE,
+     main = "Posterior Predictive FEV: 18-year-old Smoker",
+     xlab = "FEV (liters)", col = "coral", border = "white")
+abline(v = quantile(y_new_samples, c(0.025, 0.975)), col = "navy", lty = 2)
+legend("topright", legend = "95% PI", lty = 2, col = "navy")
+```
+
+# Summary
+
+| Concept | Detail |
+|--------------------------------------|----------------------------------|
+| **Model** | $Y \mid \beta, \tau \sim N_n(X\beta, \tau^{-1}I_n)$ |
+| **Independence prior** | $p(\beta, \tau) = p(\beta)p(\tau)$ |
+| **Prior on** $\beta$ | Elicited via conditional means $\tilde{m}_i = \tilde{x}_i'\beta$; induced via $\beta = \tilde{X}^{-1}\tilde{m}$ |
+| **Prior on** $\tau$ | $\mathrm{Gamma}(a, b)$ with mode and percentile constraints |
+| **Key advantage** | Elicitation on *observable* quantities; variance uncertainty decoupled from $\tau$ |
+| **Key finding** | $\beta_4 < 0$ suggests smoking reduces the rate of FEV growth with age |
