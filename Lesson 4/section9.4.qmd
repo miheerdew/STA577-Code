@@ -220,26 +220,12 @@ cat(sprintf("  b = %.2f,  a = %.4f,  P(tau < 5.52) = %.5f\n",
             b_grid[idx], a_grid[idx], p95[idx]))
 
 # Show nearby values (like the textbook table)
-cat("\nNeighborhood:\n")
 print(data.frame(a = round(a_grid[(idx-2):(idx+2)], 4),
                  b = b_grid[(idx-2):(idx+2)],
                  p95 = round(p95[(idx-2):(idx+2)], 5)))
 
 a_tau <- a_grid[idx]
 b_tau <- b_grid[idx]
-```
-
-```{r tau-prior-plot, fig.height=3.5, fig.width=6}
-# Visualize the prior on sigma = tau^{-1/2}
-set.seed(42)
-tau_samples <- rgamma(50000, shape = a_tau, rate = b_tau)
-sigma_samples <- 1 / sqrt(tau_samples)
-
-hist(sigma_samples, breaks = 60, probability = TRUE,
-     main = expression("Prior distribution of " * sigma),
-     xlab = expression(sigma), col = "steelblue", border = "white")
-abline(v = quantile(sigma_samples, c(0.025, 0.975)), col = "red", lty = 2)
-legend("topright", legend = "95% prior interval", lty = 2, col = "red")
 ```
 
 # Posterior Inference with NIMBLE
@@ -264,6 +250,10 @@ fev_code <- nimbleCode({
   # Posterior predictive for a new 18-year-old smoker
   mu_new <- inprod(beta[1:r], x_new[1:r])
   y_new  ~ dnorm(mu_new, tau = tau)
+
+  # Posterior predictive for a new 18-year-old nonsmoker
+  mu_new2 <- inprod(beta[1:r], x_new2[1:r])
+  y_new2 ~ dnorm(mu_new2, tau = tau)
 })
 ```
 
@@ -271,7 +261,9 @@ fev_code <- nimbleCode({
 
 ```{r nimble-data}
 r <- 4
+
 x_new <- c(1, 18, 1, 18)   # 18-year-old smoker
+x_new2 <- c(1, 18, 0, 18)   # 18-year-old nonsmoker
 
 fev_data <- list(
   y = y,
@@ -285,7 +277,8 @@ fev_const <- list(
   C0    = C0,
   a_tau = a_tau,
   b_tau = b_tau,
-  x_new = x_new
+  x_new = x_new,
+  x_new2 = x_new2
 )
 
 fev_inits <- list(
@@ -300,28 +293,25 @@ fev_inits <- list(
 ```{r nimble-run, cache=TRUE, results='hide'}
 set.seed(577)
 
-fev_model  <- nimbleModel(fev_code, constants = fev_const,
-                          data = fev_data, inits = fev_inits)
-fev_compiled <- compileNimble(fev_model)
-
-fev_conf <- configureMCMC(fev_model,
-                          monitors = c("beta", "tau", "sigma", "mu_new", "y_new"))
-fev_mcmc <- buildMCMC(fev_conf)
-fev_mcmc_compiled <- compileNimble(fev_mcmc, project = fev_model)
-
-samples <- runMCMC(fev_mcmc_compiled, niter = 30000, nburnin = 5000,
-                   nchains = 2, samplesAsCodaMCMC = TRUE)
+samples  <- nimbleMCMC(code=fev_code, constants = fev_const,
+                          data = fev_data, inits = fev_inits,
+                          nchains = 2, 
+                          #niter = 30000, nburnin = 1000,
+                          niter = 100000, nburnin = 20000,
+                          monitors = c("beta", "tau", "sigma", "mu_new", "y_new", "y_new2"),
+                          samplesAsCodaMCMC = TRUE)
 ```
 
 ## Convergence Diagnostics
 
 ```{r convergence, fig.height=5, fig.width=8}
-gelman.diag(samples[, c("beta[1]","beta[2]","beta[3]","beta[4]","sigma")])
+library(MCMCvis)
+MCMCsummary(samples, round = 2)
 ```
 
-```{r traceplots, fig.height=4, fig.width=8}
-plot(samples[, c("beta[2]", "beta[4]", "sigma")],
-     main = "Traceplots for key parameters")
+```{r traceplots}
+# I had to check this and increase niter and nburnin
+MCMCtrace(samples)
 ```
 
 ## Posterior Summaries
@@ -329,14 +319,14 @@ plot(samples[, c("beta[2]", "beta[4]", "sigma")],
 ```{r posterior-summary}
 all_samples <- do.call(rbind, samples)
 
-params <- c("beta[1]","beta[2]","beta[3]","beta[4]","sigma","mu_new","y_new")
+params <- c("beta[1]","beta[2]","beta[3]","beta[4]","sigma","mu_new","y_new", "y_new2")
 summ <- t(apply(all_samples[, params], 2, function(x)
   c(Mean = mean(x), SD = sd(x),
-    `2.5%` = quantile(x, 0.025),
-    `97.5%` = quantile(x, 0.975))))
+    `2.5%` = unname(quantile(x, 0.025)),
+    `97.5%` = unname(quantile(x, 0.975))
+    )))
 
-knitr::kable(round(summ, 4),
-             caption = "Posterior summaries: FEV model with BCJ independence prior")
+knitr::kable(round(summ, 4))
 ```
 
 ## Interpretation
@@ -360,12 +350,27 @@ cat(sprintf("  Mean: %.3f  SD: %.3f  95%% CI: (%.3f, %.3f)\n",
 ```{r posterior-pred-plot, fig.height=4, fig.width=7}
 # Posterior predictive distribution for an 18-year-old smoker
 y_new_samples <- all_samples[, "y_new"]
+y_new2_samples <- all_samples[, "y_new2"]
 
-hist(y_new_samples, breaks = 60, probability = TRUE,
-     main = "Posterior Predictive FEV: 18-year-old Smoker",
-     xlab = "FEV (liters)", col = "coral", border = "white")
-abline(v = quantile(y_new_samples, c(0.025, 0.975)), col = "navy", lty = 2)
-legend("topright", legend = "95% PI", lty = 2, col = "navy")
+# A dodged historgram of y_new and y_new2 samples 
+plot_df <- data.frame(
+  fev = c(y_new_samples, y_new2_samples),
+  group = factor(
+    rep(c("Smoker", "Nonsmoker"), c(length(y_new_samples), length(y_new2_samples))),
+    levels = c("Smoker", "Nonsmoker")
+  )
+)
+
+ggplot(plot_df, aes(x = fev, fill = group)) +
+  geom_histogram(aes(y = after_stat(density)), bins = 60, alpha = 0.45,
+                 position = "identity", color = "white") +
+  labs(
+    title = "Posterior Predictive FEV: 18-year-old Smoker vs Nonsmoker",
+    x = "FEV (liters)",
+    y = "Density") +
+  scale_fill_manual(values = c("Smoker" = "coral", "Nonsmoker" = "lightblue")) +
+  scale_color_manual(values = c("Smoker" = "navy", "Nonsmoker" = "darkgreen")) +
+  theme_bw()
 ```
 
 # Summary
@@ -376,5 +381,4 @@ legend("topright", legend = "95% PI", lty = 2, col = "navy")
 | **Independence prior** | $p(\beta, \tau) = p(\beta)p(\tau)$ |
 | **Prior on** $\beta$ | Elicited via conditional means $\tilde{m}_i = \tilde{x}_i'\beta$; induced via $\beta = \tilde{X}^{-1}\tilde{m}$ |
 | **Prior on** $\tau$ | $\mathrm{Gamma}(a, b)$ with mode and percentile constraints |
-| **Key advantage** | Elicitation on *observable* quantities; variance uncertainty decoupled from $\tau$ |
 | **Key finding** | $\beta_4 < 0$ suggests smoking reduces the rate of FEV growth with age |
