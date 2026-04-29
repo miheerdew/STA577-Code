@@ -40,9 +40,9 @@ cat("Smokers:", sum(fev$smoke01), "  Nonsmokers:", sum(1 - fev$smoke01), "\n")
 cat("Mean FEV:", mean(fev$fev[fev$smoke01 == 1]), " (smokers) vs ", mean(fev$fev[fev$smoke01 == 0]), " (nonsmokers)\n")
 ```
 
-While the last metric suggests smokers have better lung function than non-smokers, this is not the case. The problem is confounding due to age: older adolescents are more likely to smoke and have heigher lung function!
+While the last metric suggests smokers have better lung function than non-smokers, this is not the case. The problem is confounding due to age: older adolescents are more likely to smoke and have higher lung function!
 
-We need to account for `age` for age in our analysis. The following plot suggest that smoking indeed degreades FEV
+We need to account for `age` in our analysis. The following plot suggest that smoking indeed degrades FEV.
 
 ```{r confounding-plot, fig.height=4, fig.width=7}
 #| echo: false
@@ -75,10 +75,10 @@ $$y_i = (\beta_1 + \beta_3) + (\beta_2 + \beta_4) \text{age}_i + \epsilon_i$$
 
 **Interpretation of coefficients:**
 
-- $\beta_1$: intercept (baseline FEV at age 0 for nonsmokers — extrapolation only)
+- $\beta_1$: intercept (baseline FEV at "age 0" for nonsmokers)
 - $\beta_2$: rate of FEV increase per year for *nonsmokers*
-- $\beta_3$: difference in intercepts between smokers and nonsmokers
-- $\beta_4$: difference in age slopes between smokers and nonsmokers (the key parameter for our question)
+- $\beta_3$: difference in intercepts between smokers and nonsmokers (at "age 0")
+- $\beta_4$: difference in FEV increase per year between smokers and nonsmokers (the key parameter for our question)
 
 ```{r design-matrix}
 X <- cbind(1, fev$age, fev$smoke01, fev$ageSmoke)
@@ -143,7 +143,7 @@ X_tilde
 
 A collaborator with domain knowledge (a pulmonologist, say) provides the following assessments. For each group, we elicit a best guess $\tilde{y}_i$ (prior mean of $\tilde{m}_i$) and a bound that translates to a prior variance $\tilde{w}_i$.
 
-**Example: 18-year-old smokers (**$\tilde{m}_4$). The expert believes:
+**Example: 18-year-old smokers** ($\tilde{m}_4$). The expert believes:
 
 - Best guess for mean FEV: $\tilde{y}_4 = 3.3$ liters
 - 99% sure the mean FEV is less than 4.0 liters
@@ -152,7 +152,7 @@ Under a normal prior, the 99th percentile satisfies $4.0 = 3.3 + 2.33\sqrt{\tild
 
 $$\tilde{w}_4 = \frac{(4.0 - 3.3)^2}{2.33^2} = \frac{0.49}{5.4289} \approx 0.09$$
 
-Applying the same logic to all four groups yields:
+Applying the same logic to all four groups gives:
 
 $$\tilde{m} = \tilde{X}\beta \sim N_4\!\left( \begin{bmatrix} 2.8 \\ 3.0 \\ 4.0 \\ 3.3 \end{bmatrix},\; \begin{bmatrix} 0.04 & 0 & 0 & 0 \\ 0 & 0.04 & 0 & 0 \\ 0 & 0 & 0.04 & 0 \\ 0 & 0 & 0 & 0.09 \end{bmatrix} \right)$$
 
@@ -165,7 +165,7 @@ D_tilde <- diag(c(0.04, 0.04, 0.04, 0.09))
 
 Since $\tilde{m} = \tilde{X}\beta$ is multivariate normal and $\tilde{X}$ is invertible, we have $\beta = \tilde{X}^{-1}\tilde{m}$, which gives
 
-$$\beta \sim N_r\!\left(\tilde{X}^{-1}\tilde{Y},\; \tilde{X}^{-1} D(\tilde{w}) \tilde{X}^{-1\prime}\right)$$
+$$\beta \sim N_4\!\left(\tilde{X}^{-1}\tilde{Y},\; \tilde{X}^{-1} D(\tilde{w}) \tilde{X}^{-1\prime}\right)$$
 
 ```{r induced-prior-beta}
 X_tilde_inv <- solve(X_tilde)
@@ -193,7 +193,7 @@ To choose $a$ and $b$ in $\tau \sim \mathrm{Gamma}(a, b)$, we elicit two pieces 
 
 **Step 1 — Best guess for the 95th percentile of FEV among 18-year-old smokers.**
 
-Under normality, the 95th percentile of FEV is $\tilde{m}_4 + 1.645\sigma$. With $\tilde{m}_4 = 3.3$ (our best guess) and the expert's best guess for the 95th percentile being 5.0, we get:
+Under normality, the 95th percentile of FEV is $\tilde{m}_4 + 1.645\sigma$. With $\tilde{m}_4 = 3.3$ (our best guess) and the **expert's best guess for the 95th percentile being 5.0**, we get:
 
 $$5.0 = 3.3 + 1.645\sigma_0 \implies \sigma_0 = \frac{1.7}{1.645} \implies \tau_0 = \left(\frac{1.645}{1.7}\right)^2 \approx 0.94$$
 
@@ -201,9 +201,9 @@ This gives the **mode** of the Gamma prior: $\frac{a-1}{b} = 0.94$, i.e. $a = 0.
 
 **Step 2 — Lower bound on the 95th percentile.**
 
-We are 95% sure that the 95th percentile of FEV exceeds 4.0:
+Suppose further that the expert is 95% sure that the 95th percentile of FEV for 18-year-old smokers exceeds 4.0:
 
-$$0.95 = P(\tilde{m}_4 + 1.645\sigma > 4.0) = P\!\left(\tau < \left(\frac{1.645}{0.7}\right)^2\right) = P(\tau < 5.52)$$
+$$0.95 = P(\tilde{m}_4 + 1.645\sigma > 4.0| \tilde{m}_4 = 3.3) = P\!\left(\tau < \left(\frac{1.645}{0.7}\right)^2\right) = P(\tau < 5.52)$$
 
 We find $b$ such that $\mathrm{Gamma}(0.94b+1,\, b)$ has its 95th percentile equal to 5.52.
 
@@ -244,9 +244,6 @@ fev_code <- nimbleCode({
   beta[1:r] ~ dmnorm(beta0[1:r], cov = C0[1:r, 1:r])
   tau        ~ dgamma(a_tau, b_tau)
 
-  # Derived quantities
-  sigma <- 1 / sqrt(tau)
-
   # Posterior predictive for a new 18-year-old smoker
   mu_new <- inprod(beta[1:r], x_new[1:r])
   y_new  ~ dnorm(mu_new, tau = tau)
@@ -263,7 +260,7 @@ fev_code <- nimbleCode({
 r <- 4
 
 x_new <- c(1, 18, 1, 18)   # 18-year-old smoker
-x_new2 <- c(1, 18, 0, 18)   # 18-year-old nonsmoker
+x_new2 <- c(1, 18, 0, 0)   # 18-year-old nonsmoker
 
 fev_data <- list(
   y = y,
@@ -284,7 +281,8 @@ fev_const <- list(
 fev_inits <- list(
   beta  = as.vector(beta0),
   tau   = 1.0,
-  y_new = 3.3
+  y_new = 3.3,
+  y_new2 = 3.3
 )
 ```
 
@@ -298,7 +296,7 @@ samples  <- nimbleMCMC(code=fev_code, constants = fev_const,
                           nchains = 2, 
                           #niter = 30000, nburnin = 1000,
                           niter = 100000, nburnin = 20000,
-                          monitors = c("beta", "tau", "sigma", "mu_new", "y_new", "y_new2"),
+                          monitors = c("beta", "tau", "mu_new", "y_new", "y_new2"),
                           samplesAsCodaMCMC = TRUE)
 ```
 
@@ -319,7 +317,7 @@ MCMCtrace(samples)
 ```{r posterior-summary}
 all_samples <- do.call(rbind, samples)
 
-params <- c("beta[1]","beta[2]","beta[3]","beta[4]","sigma","mu_new","y_new", "y_new2")
+params <- c("beta[1]","beta[2]","beta[3]","beta[4]","tau","mu_new","y_new", "y_new2")
 summ <- t(apply(all_samples[, params], 2, function(x)
   c(Mean = mean(x), SD = sd(x),
     `2.5%` = unname(quantile(x, 0.025)),
@@ -381,4 +379,4 @@ ggplot(plot_df, aes(x = fev, fill = group)) +
 | **Independence prior** | $p(\beta, \tau) = p(\beta)p(\tau)$ |
 | **Prior on** $\beta$ | Elicited via conditional means $\tilde{m}_i = \tilde{x}_i'\beta$; induced via $\beta = \tilde{X}^{-1}\tilde{m}$ |
 | **Prior on** $\tau$ | $\mathrm{Gamma}(a, b)$ with mode and percentile constraints |
-| **Key finding** | $\beta_4 < 0$ suggests smoking reduces the rate of FEV growth with age |
+| **Key finding** | $\beta_4 < 0$ suggests smoking reduces the rate of FEV growth with age. Illustrated FEV distribution for 18 year old smoker vs non-smoker. |
